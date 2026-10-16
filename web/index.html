@@ -64,10 +64,11 @@
   async function insert(table, row) {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
-      headers: { apikey: PUBLIC_KEY, "Content-Type": "application/json", Prefer: "return=minimal,resolution=ignore-duplicates" },
+      headers: { apikey: PUBLIC_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
       body: JSON.stringify(row),
     });
-    if (!res.ok) throw new Error(await res.text());
+    // 409＝這支手機之前已經登記過，視為成功
+    if (!res.ok && res.status !== 409) throw new Error(await res.text());
   }
 
   function setReady(ready) { $("r2").disabled = $("r10").disabled = !ready; }
