@@ -3,122 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#2F5D50">
-  <title>Rona 課表｜通知測試</title>
+  <meta name="theme-color" content="#F1F4F1">
+  <title>Rona 課表</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon-192.png">
-  <style>
-    :root { --bg:#FAF6F0; --ink:#1F2A27; --muted:#6B7570; --brand:#2F5D50; --accent:#E8A87C; --ok:#3C8D5A; --bad:#C0504D; --card:#FFFFFF; }
-    * { box-sizing: border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; line-height:1.5; }
-    main { max-width:480px; margin:0 auto; padding:24px 16px 48px; }
-    h1 { font-size:22px; margin:8px 0 4px; }
-    p.sub { color:var(--muted); margin:0 0 20px; font-size:14px; }
-    .card { background:var(--card); border-radius:16px; padding:18px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
-    .step { font-size:13px; color:var(--brand); font-weight:700; letter-spacing:.04em; }
-    .card h2 { font-size:17px; margin:2px 0 10px; }
-    button { width:100%; border:0; border-radius:12px; padding:14px; font-size:16px; font-weight:600; background:var(--brand); color:#fff; margin-top:8px; }
-    button.alt { background:#E9EFEC; color:var(--brand); }
-    button:disabled { opacity:.45; }
-    .status { margin-top:10px; font-size:14px; min-height:21px; }
-    .ok { color:var(--ok); } .bad { color:var(--bad); }
-    .hint { font-size:13px; color:var(--muted); margin:6px 0 0; }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<main>
-  <h1>上課提醒測試</h1>
-  <p class="sub">測試 APP 關閉時，手機能不能準時收到通知</p>
-
-  <div class="card">
-    <div class="step">第 1 步</div>
-    <h2>開啟通知</h2>
-    <button id="enable">開啟通知</button>
-    <div class="status" id="enableStatus"></div>
-  </div>
-
-  <div class="card">
-    <div class="step">第 2 步</div>
-    <h2>預約一則測試提醒</h2>
-    <button id="r2" disabled>2 分鐘後提醒我</button>
-    <button id="r10" class="alt" disabled>10 分鐘後提醒我</button>
-    <div class="status" id="remindStatus"></div>
-    <p class="hint">按下後就把 APP 關掉、手機鎖定螢幕。時間到了應該會跳出通知（最多可能晚 1 分鐘）。</p>
-  </div>
-</main>
-
-<script>
-  const SUPABASE_URL = "https://jjwviguwkacgcxgljeak.supabase.co";
-  const PUBLIC_KEY = "sb_publishable_NUN1iOVnv0WbpvnR-82fbQ_O-h52sae";
-  const VAPID_PUBLIC_KEY = "BOfgWDSqW6lYy4m4dCdEwrjuQAhfNvt-M3V4jhvjkq4qTlCe84lm9573artXKkiBhKKfdzOnYSynEqsm6pXM_3M";
-
-  const $ = (id) => document.getElementById(id);
-  const say = (el, text, ok) => { el.textContent = text; el.className = "status " + (ok ? "ok" : "bad"); };
-
-  function keyToBytes(base64) {
-    const pad = "=".repeat((4 - base64.length % 4) % 4);
-    const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
-    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
-  }
-
-  async function insert(table, row) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: { apikey: PUBLIC_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify(row),
-    });
-    // 409＝這支手機之前已經登記過，視為成功
-    if (!res.ok && res.status !== 409) throw new Error(await res.text());
-  }
-
-  function setReady(ready) { $("r2").disabled = $("r10").disabled = !ready; }
-
-  async function enable() {
-    const el = $("enableStatus");
-    try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        return say(el, "這個瀏覽器不支援通知，請改用 Chrome 打開。", false);
-      }
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") return say(el, "通知被拒絕了。請到 Chrome 的網站設定裡把通知改成「允許」。", false);
-
-      const reg = await navigator.serviceWorker.register("sw.js");
-      await navigator.serviceWorker.ready;
-      const sub = (await reg.pushManager.getSubscription()) ||
-        (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(VAPID_PUBLIC_KEY) }));
-      const json = sub.toJSON();
-      await insert("push_subscriptions", { endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth });
-      say(el, "✓ 通知已開啟", true);
-      setReady(true);
-    } catch (e) {
-      say(el, "開啟失敗：" + e.message, false);
-    }
-  }
-
-  async function remind(minutes) {
-    const el = $("remindStatus");
-    const fireAt = new Date(Date.now() + minutes * 60000);
-    const hhmm = fireAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
-    try {
-      await insert("test_reminders", {
-        fire_at: fireAt.toISOString(),
-        title: "上課提醒（測試）",
-        body: `這是 ${minutes} 分鐘前預約的測試提醒，預定 ${hhmm} 送達`,
-      });
-      say(el, `✓ 已預約，預計 ${hhmm} 收到通知。現在可以關掉 APP、鎖定螢幕了。`, true);
-    } catch (e) {
-      say(el, "預約失敗：" + e.message, false);
-    }
-  }
-
-  $("enable").onclick = enable;
-  $("r2").onclick = () => remind(2);
-  $("r10").onclick = () => remind(10);
-
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js");
-    if (Notification.permission === "granted") enable();
-  }
-</script>
+  <div id="app" aria-live="polite"></div>
+  <div id="sheet-root"></div>
+  <div id="toast" role="status"></div>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
