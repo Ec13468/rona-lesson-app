@@ -408,3 +408,28 @@ button { cursor: pointer; }
   font-size: 20px; font-variant-numeric: tabular-nums; color: var(--faint);
 }
 .wheel button[aria-pressed="true"] { color: var(--lesson); font-weight: 700; font-size: 24px; }
+
+/* 第 3 階段：每週時數、空檔小提醒、提醒設定 */
+.week-card { background: var(--surface); border-radius: 16px; padding: 12px 14px; margin: 14px 0 10px; }
+.week-row { display: flex; align-items: baseline; gap: 8px; font-size: 15px; }
+.week-row b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.week-bar { height: 6px; border-radius: 3px; background: var(--paper); margin-top: 8px; overflow: hidden; }
+.week-bar i { display: block; height: 100%; background: var(--lesson); border-radius: 3px; }
+.week-card.is-over { background: var(--alert-soft); }
+.week-card.is-over .week-bar i { background: var(--alert); }
+.week-card.is-over b { color: var(--alert); }
+.week-card p { margin: 8px 0 0; color: var(--alert); font-size: 14px; }
+.week-total { margin: -4px 0 10px; color: var(--muted); font-size: 14px; }
+.week-total b { color: var(--ink); }
+.gap-tip {
+  list-style: none; margin: 4px 0 4px 70px; padding: 10px 12px; border-radius: 14px;
+  background: var(--studio-soft); color: var(--ink); font-size: 14px; line-height: 1.55;
+}
+.gap-tip .gap-time { display: block; color: var(--studio); font-weight: 600; font-size: 13px; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.remind-panel { padding: 12px 16px 14px; }
+.remind-panel > p:first-child { margin: 0 0 10px; }
+.remind-panel .btn { margin-top: 0; margin-bottom: 12px; }
+.remind-panel .label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+.panel-switch { margin: 0; padding: 8px 0; color: var(--ink); }
+.panel-switch + .panel-switch { border-top: 1px solid var(--line); }
+.ok-text { color: var(--lesson); font-weight: 600; }

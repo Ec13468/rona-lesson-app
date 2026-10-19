@@ -1,5 +1,5 @@
 // 學生扣堂、收入與教室鐘點費的計算規則（不碰畫面、不碰資料庫，方便自動測試）
-import { isFinished, dayKey, addDays, startOfDay, parseDay } from "./logic.js";
+import { isFinished, dayKey, addDays, startOfDay, parseDay } from "./logic.js?v=dev";
 
 export const EXPIRY_WARN_DAYS = 14;
 

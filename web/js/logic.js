@@ -156,3 +156,35 @@ export function todayView(events, now, showPersonal) {
   else if (classesLeft.length === 0) state = "done";
   return { upcoming, state, classesLeft: classesLeft.length };
 }
+
+// ---------- 每週授課時數、空檔 ----------
+
+// 這週（週一到週日）一對一＋教室課的總分鐘數，已取消的不算；已上完和還沒上的都算
+export function weekMinutes(events, anyDayInWeek) {
+  const from = startOfWeek(anyDayInWeek), to = addDays(from, 7);
+  return events
+    .filter((e) => isClass(e) && isActive(e) && e.start >= from && e.start < to)
+    .reduce((n, e) => n + minutesBetween(e.start, e.end), 0);
+}
+
+export function hoursText(minutes) {
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return m ? `${h} 小時 ${m} 分` : `${h} 小時`;
+}
+
+// 今天兩堂課之間的空檔（中間沒有任何行程），只列還沒過去的
+export function gapsToday(events, now, minMinutes = 120) {
+  const today = eventsOnDay(events, now).filter((e) => isActive(e) && !e.allDay && sameDay(e.start, e.end));
+  const classes = today.filter(isClass).sort((a, b) => a.start - b.start);
+  const gaps = [];
+  for (let i = 0; i < classes.length - 1; i++) {
+    const a = classes[i], b = classes[i + 1];
+    // 中間有其他行程（例如個人行程）就不算空檔
+    const blocked = today.some((e) => e !== a && e !== b && e.start < b.start && e.end > a.end);
+    if (blocked) continue;
+    const free = { start: a.end, end: b.start };
+    const minutes = minutesBetween(free.start, free.end);
+    if (minutes >= minMinutes && free.end > now) gaps.push({ after: a, before: b, start: free.start, end: free.end, minutes });
+  }
+  return gaps;
+}

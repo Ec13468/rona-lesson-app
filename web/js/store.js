@@ -1,6 +1,6 @@
 // 資料存取：正式版存雲端（Supabase），展示版存在這台電腦的瀏覽器
-import { SUPABASE_URL, SUPABASE_PUBLIC_KEY, DEMO } from "./config.js";
-import { addDays, startOfDay, dayKey } from "./logic.js";
+import { SUPABASE_URL, SUPABASE_PUBLIC_KEY, DEMO } from "./config.js?v=dev";
+import { addDays, startOfDay, dayKey } from "./logic.js?v=dev";
 
 const toEvent = (r) => ({
   id: r.id,
@@ -20,6 +20,7 @@ const toEvent = (r) => ({
   lessonNotes: r.lesson_notes ?? "",
   singlePrice: r.single_price ?? null,
   allDay: !!r.all_day,
+  remind: r.remind ?? null,
 });
 
 const toRow = (e) => ({
@@ -39,6 +40,7 @@ const toRow = (e) => ({
   lesson_notes: e.lessonNotes ?? "",
   single_price: e.kind === "lesson" ? e.singlePrice ?? null : null,
   all_day: e.kind === "personal" ? !!e.allDay : false,
+  remind: e.remind ?? null,
 });
 
 const toPerson = (r) => ({
@@ -55,6 +57,16 @@ const personRow = (x) => {
   if ("bonusPer" in x) row.bonus_per = x.bonusPer;
   return row;
 };
+export const DEFAULT_SETTINGS = { remindMinutes: 120, remindLesson: true, remindStudio: true, remindPersonal: false, weekLimit: 20 };
+const toSettings = (r) => r ? {
+  remindMinutes: r.remind_minutes, remindLesson: r.remind_lesson, remindStudio: r.remind_studio,
+  remindPersonal: r.remind_personal, weekLimit: Number(r.week_limit),
+} : { ...DEFAULT_SETTINGS };
+const settingsRow = (x) => ({
+  remind_minutes: x.remindMinutes, remind_lesson: x.remindLesson, remind_studio: x.remindStudio,
+  remind_personal: x.remindPersonal, week_limit: x.weekLimit, updated_at: new Date().toISOString(),
+});
+
 const toCourse = (r) => ({
   id: r.id, studioId: r.studio_id, name: r.name, hidden: !!r.archived_at,
   baseFee: r.base_fee ?? 0, bonusAfter: r.bonus_after ?? 0, bonusPer: r.bonus_per ?? 0,
@@ -151,6 +163,32 @@ function cloudStore() {
     },
     async listCourses() {
       return check(await (await t("studio_courses")).select("*").order("created_at")).map(toCourse);
+    },
+    async getSettings() {
+      return toSettings(check(await (await t("user_settings")).select("*").maybeSingle()));
+    },
+    async saveSettings(x) {
+      return toSettings(check(await (await t("user_settings")).upsert(settingsRow(x)).select().single()));
+    },
+    // 這支手機的通知訂閱
+    async savePushSubscription(json) {
+      check(await (await t("push_subscriptions")).upsert(
+        { endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth },
+        { onConflict: "endpoint" },
+      ));
+    },
+    async removePushSubscription(endpoint) {
+      check(await (await t("push_subscriptions")).delete().eq("endpoint", endpoint));
+    },
+    async sendTestPush() {
+      const { data } = await (await db()).auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-reminders`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.session.access_token}`, apikey: SUPABASE_PUBLIC_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ test: true }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return (await res.json()).sent;
     },
     async addCourse(c) {
       return toCourse(check(await (await t("studio_courses")).insert(courseRow(c)).select().single()));
@@ -329,6 +367,11 @@ function demoStore() {
       return mutate((s) => { const x = s.packages.find((r) => r.id === id); Object.assign(x, packageRow(p)); return toPackage(x); });
     },
     async listCourses() { return (load().courses ?? []).map(toCourse); },
+    async getSettings() { return toSettings(load().settings); },
+    async saveSettings(x) { return mutate((s) => { s.settings = settingsRow(x); return toSettings(s.settings); }); },
+    async savePushSubscription() { throw new Error("展示版不支援通知"); },
+    async removePushSubscription() {},
+    async sendTestPush() { throw new Error("展示版不支援通知"); },
     async addCourse(c) {
       return mutate((s) => { const row = { ...courseRow(c), id: uid() }; (s.courses ??= []).push(row); return toCourse(row); });
     },

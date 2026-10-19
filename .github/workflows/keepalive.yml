@@ -3,12 +3,26 @@ on:
   schedule:
     - cron: "17 1 * * *" # 每天台灣時間 09:17
   workflow_dispatch:
-permissions: {}
+permissions:
+  contents: write
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - run: |
+      - name: 叫醒資料庫
+        run: |
           curl -fsS -X POST "https://jjwviguwkacgcxgljeak.supabase.co/rest/v1/rpc/ping" \
             -H "apikey: sb_publishable_NUN1iOVnv0WbpvnR-82fbQ_O-h52sae" \
             -H "Content-Type: application/json" -d '{}'
+      # GitHub 會停掉 60 天沒有更新的儲存庫的排程；每月 1 日留一筆空白更新，讓排程一直有效
+      - uses: actions/checkout@v4
+        if: github.event_name == 'schedule'
+      - name: 每月留一筆更新
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(TZ=Asia/Taipei date +%d)" = "01" ]; then
+            git config user.name "keepalive"
+            git config user.email "keepalive@users.noreply.github.com"
+            git commit --allow-empty -m "每月保持排程有效"
+            git push
+          fi

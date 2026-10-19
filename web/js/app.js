@@ -1,11 +1,11 @@
-import { store } from "./store.js";
-import { DEMO } from "./config.js";
+import { store, DEFAULT_SETTINGS } from "./store.js?v=dev";
+import { DEMO, VAPID_PUBLIC_KEY } from "./config.js?v=dev";
 import {
   WEEKDAYS, addDays, startOfDay, startOfWeek, sameDay, dayKey, hhmm, minutesBetween,
   monthGrid, isFinished, findConflicts, eventsOnDay, todayView,
-  SERIES_HORIZON_DAYS, parseDay, spanLabel, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
-} from "./logic.js";
-import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey } from "./billing.js";
+  SERIES_HORIZON_DAYS, parseDay, spanLabel, weekMinutes, gapsToday, hoursText, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
+} from "./logic.js?v=dev";
+import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey } from "./billing.js?v=dev";
 
 // ---------- 狀態 ----------
 const state = {
@@ -19,6 +19,8 @@ const state = {
   events: new Map(),
   packages: [],
   courses: [],
+  settings: { ...DEFAULT_SETTINGS },
+  pushStatus: "checking", // unsupported | denied | off | on
   studentId: null, // 學生分頁正在看的學生
   reportMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   loaded: null, // { from, to }
@@ -179,13 +181,23 @@ function viewToday() {
   } else {
     status = `<p class="today-status">今天沒有排課</p>`;
   }
+  // 空檔小提醒插在兩堂課中間；前一堂已經上完的，就放在最上面
+  const gaps = gapsToday(allEvents(), now);
+  const shown = new Set(v.upcoming.map((e) => e.id));
+  const items = [];
+  for (const g of gaps.filter((g) => !shown.has(g.after.id))) items.push(gapHTML(g));
+  for (const e of v.upcoming) {
+    items.push(itemHTML(e, now, now));
+    for (const g of gaps.filter((g) => g.after.id === e.id)) items.push(gapHTML(g));
+  }
   const list = v.upcoming.length
-    ? `<ul class="timeline">${v.upcoming.map((e) => itemHTML(e, now, now)).join("")}</ul>`
+    ? `<ul class="timeline">${items.join("")}</ul>`
     : v.state === "none" ? `<div class="empty"><p>按右下角的 ＋ 新增課程或個人行程。</p></div>` : "";
   return `
     <h1 class="today-date">${now.getMonth() + 1}月${now.getDate()}日</h1>
     <p class="today-week">星期${WEEKDAYS[now.getDay()]}</p>
     ${status}
+    ${weekCard()}
     ${todayAlerts()}
     <div class="switch-row" style="margin-top:18px">
       <span id="sw-label">顯示個人行程</span>
@@ -244,8 +256,41 @@ function viewCalendar() {
       <button class="text-btn" data-action="cal-today">今天</button>
       <button class="icon-btn" data-action="cal-move" data-dir="1" aria-label="下一個">${icons.next}</button>
     </div>
+    ${mode === "week" ? `<p class="week-total">這週授課 <b>${hoursText(weekMinutes(all, c))}</b></p>` : ""}
     <div class="legend"><span><i style="background:var(--lesson)"></i>一對一</span><span><i style="background:var(--studio)"></i>教室</span><span><i style="background:var(--personal)"></i>個人行程</span><span class="legend-icon">${icons.note}備註</span></div>
     ${body}`;
+}
+
+// 本週授課時數：超過上限就提醒休息
+function weekCard() {
+  const mins = weekMinutes(allEvents(), new Date());
+  const limit = state.settings.weekLimit * 60;
+  const over = mins > limit;
+  const pct = Math.min(100, Math.round((mins / limit) * 100));
+  return `<div class="week-card ${over ? "is-over" : ""}">
+    <div class="week-row"><span>本週授課</span><b>${hoursText(mins)}</b><span class="muted">／上限 ${state.settings.weekLimit} 小時</span></div>
+    <div class="week-bar"><i style="width:${pct}%"></i></div>
+    ${over ? `<p>這週已經超過上限 ${hoursText(mins - limit)}，記得替自己留一點休息的時間。</p>` : ""}
+  </div>`;
+}
+
+// 空檔小提醒（同一天、同一個空檔，每次打開看到的是同一句）
+const GAP_TIPS = [
+  "找個安靜的角落，閉上眼睛做五次深呼吸，讓身體慢慢回到自己身上 🧘",
+  "去附近喝杯溫熱的茶吧，不用趕，用自己的步調走過去 ✨",
+  "伸展一下肩頸和手腕，剛剛的課辛苦了。",
+  "這段空白不是浪費，而是讓下一堂課更有品質的準備。",
+  "趁感受還新鮮，替剛剛那堂課寫幾句上課筆記 ➡️ 學生頁就能寫。",
+  "記得吃點東西、喝點水，照顧好自己，才能好好陪伴學生 ❤️",
+  "翻幾頁喜歡的書，讓心安靜下來。",
+  "不需要把時間排得滿滿的，發呆，也是一種休息。",
+  "到戶外走走、曬曬太陽，感受腳踩在地上的感覺 🌿",
+  "想想下一堂想帶給學生什麼，或者，什麼都不想也很好。",
+];
+function gapHTML(g) {
+  const seed = [...(dayKey(g.start) + g.after.id)].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7);
+  return `<li class="gap-tip"><span class="gap-time">${hhmm(g.start)}–${hhmm(g.end)}・空檔 ${hoursText(g.minutes)}</span>
+    <span>｜${esc(GAP_TIPS[seed % GAP_TIPS.length])}</span></li>`;
 }
 
 // 首頁的提醒：學生繳費／到期、教室課沒填人數
@@ -369,6 +414,7 @@ function viewReport() {
   </section>`;
 
   let confirmed = lessons.confirmed, estimate = lessons.estimate;
+  const isThisMonth = m.getFullYear() === now.getFullYear() && m.getMonth() === now.getMonth();
   const studioCards = state.studios.map((st) => {
     const r = studioStatement(st, findCourse, allEvents(), from, to, now);
     if (!r.rows.length && st.hidden) return "";
@@ -401,11 +447,86 @@ function viewReport() {
       <button class="icon-btn" data-action="report-move" data-dir="1" aria-label="下個月">${icons.next}</button>
     </div>
     <div class="rep-total">
-      <div><span>已上完</span><b>${money(confirmed)}</b></div>
+      <div><span>已上完${isThisMonth ? `（1–${new Date().getDate()} 日）` : ""}</span><b>${money(confirmed)}</b></div>
       <div><span>還沒上（預估）</span><b>${money(estimate)}</b></div>
       <div class="grand"><span>本月合計</span><b>${money(confirmed + estimate)}</b></div>
     </div>
     ${lessonCard}${studioCards}`;
+}
+
+function reminderPanel() {
+  const st = state.settings;
+  const statusText = {
+    checking: "檢查中…",
+    unsupported: "這個瀏覽器收不到通知，請用 Chrome 打開，並加到主畫面。",
+    denied: "通知被封鎖了。請到 Chrome 的網站設定，把這個網站的通知改成「允許」。",
+    off: "這支手機還沒開啟通知。",
+    on: "這支手機已開啟通知 ✓",
+  }[DEMO ? "unsupported" : state.pushStatus];
+  const leads = [30, 60, 120, 180];
+  const leadLabel = (m) => (m % 60 ? `${m} 分鐘` : `${m / 60} 小時`);
+  const custom = !leads.includes(st.remindMinutes);
+  const toggle = (key, label) => `<div class="switch-row panel-switch"><span id="set-${key}">${label}</span>
+    <label class="switch"><input type="checkbox" data-setting="${key}" aria-labelledby="set-${key}" ${st[key] ? "checked" : ""}><span></span></label></div>`;
+  return `<div class="panel remind-panel">
+    <p class="${state.pushStatus === "on" ? "ok-text" : "muted"}">${statusText}</p>
+    ${state.pushStatus === "off" ? '<button class="btn" data-action="push-enable">開啟這支手機的通知</button>' : ""}
+    ${state.pushStatus === "on" ? '<div class="btn-row"><button class="btn quiet" data-action="push-test">傳一則測試通知</button><button class="btn quiet" data-action="push-disable">關閉通知</button></div>' : ""}
+    <span class="label">課前多久提醒</span>
+    <div class="chips">
+      ${leads.map((m) => `<button type="button" class="chip" data-action="remind-lead" data-v="${m}" aria-pressed="${st.remindMinutes === m}">${leadLabel(m)}</button>`).join("")}
+      <button type="button" class="chip" data-action="remind-lead-custom" aria-pressed="${custom}">自訂</button>
+    </div>
+    ${custom ? `<form class="inline-add" data-form="remind-custom"><input class="input" name="mins" type="number" min="5" max="1440" step="5" inputmode="numeric" value="${st.remindMinutes}" aria-label="課前幾分鐘"><span style="align-self:center">分鐘前</span><button class="chip" type="submit" aria-pressed="true">儲存</button></form>` : ""}
+    <span class="label" style="margin-top:14px">哪些行程要提醒</span>
+    ${toggle("remindLesson", "一對一")}${toggle("remindStudio", "教室課")}${toggle("remindPersonal", "個人行程")}
+    <p class="hint">每一堂課也可以在編輯畫面單獨打開或關掉提醒。</p>
+  </div>`;
+}
+
+async function saveSettings(patch, message) {
+  try {
+    state.settings = await store.saveSettings({ ...state.settings, ...patch });
+    render(); if (message) toast(message);
+  } catch (e) { console.error(e); toast("沒有存成功，請檢查網路後再試"); }
+}
+
+async function refreshPushStatus() {
+  if (DEMO || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) { state.pushStatus = "unsupported"; return; }
+  if (Notification.permission === "denied") { state.pushStatus = "denied"; return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    state.pushStatus = sub && Notification.permission === "granted" ? "on" : "off";
+    if (sub && Notification.permission === "granted") await store.savePushSubscription(sub.toJSON()); // 確保綁在目前登入的帳號
+  } catch (_) { state.pushStatus = "off"; }
+}
+
+function keyToBytes(base64) {
+  const pad = "=".repeat((4 - base64.length % 4) % 4);
+  const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function enablePush() {
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") { state.pushStatus = permission === "denied" ? "denied" : "off"; render(); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription())
+      || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(VAPID_PUBLIC_KEY) }));
+    await store.savePushSubscription(sub.toJSON());
+    state.pushStatus = "on"; render(); toast("已開啟通知");
+  } catch (e) { console.error(e); toast("沒有開啟成功，請再試一次"); }
+}
+
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await store.removePushSubscription(sub.endpoint); await sub.unsubscribe(); }
+    state.pushStatus = "off"; render(); toast("已關閉這支手機的通知");
+  } catch (e) { console.error(e); toast("沒有關閉成功，請再試一次"); }
 }
 
 function viewMe() {
@@ -415,6 +536,13 @@ function viewMe() {
     <h1 class="page-title">我的</h1>
     <h2 class="section-title">教室與鐘點費</h2>
     <div class="panel">${studios || '<div class="panel-row"><span class="muted">還沒有教室，新增課程時可以加入</span></div>'}</div>
+    <h2 class="section-title">上課提醒</h2>
+    ${reminderPanel()}
+    <h2 class="section-title">每週授課時數上限</h2>
+    <form class="inline-add" data-form="week-limit" style="margin-top:0">
+      <input class="input" name="hours" type="number" min="1" max="80" step="0.5" inputmode="decimal" value="${state.settings.weekLimit}" aria-label="每週上限（小時）">
+      <span style="align-self:center">小時</span><button class="chip" type="submit" aria-pressed="true">儲存</button>
+    </form>
     <h2 class="section-title">帳號</h2>
     <div class="panel">
       <div class="panel-row"><span>登入帳號</span><span class="muted">${esc(state.user.email)}</span></div>
@@ -732,6 +860,14 @@ function renderSheet() {
       <div class="end-hint" id="end-hint">${end ? `到 ${end} 結束` : ""}</div>
     </div>`;
 
+  // 提醒：預設照「我的」裡的類型設定，這一堂可以單獨改
+  const typeKey = { lesson: "remindLesson", studio: "remindStudio", personal: "remindPersonal" }[k];
+  const remindOn = draft.remind ?? state.settings[typeKey];
+  const lead = state.settings.remindMinutes;
+  const remindRow = personal && draft.allDay ? "" : `
+    <div class="field"><div class="switch-row" style="margin:0"><span id="remind-label">提醒我（${lead % 60 ? `${lead} 分鐘` : `${lead / 60} 小時`}前）</span>
+      <label class="switch"><input type="checkbox" data-action="remind-toggle" aria-labelledby="remind-label" ${remindOn ? "checked" : ""}><span></span></label></div></div>`;
+
   // 上課筆記：一對一課開始後才會出現
   const started = editing && draft.start && draft.start <= new Date();
   const lessonNotes = k === "lesson" && started ? `
@@ -757,7 +893,7 @@ function renderSheet() {
     <form class="sheet" data-form="event" role="dialog" aria-modal="true" aria-label="${editing ? "編輯" : "新增"}">
       <div class="grip"></div>
       <h2>${heading}</h2>
-      ${seriesNote}${statusNote}${groupSeg}${category}${who}${repeat}${pay}${when}
+      ${seriesNote}${statusNote}${groupSeg}${category}${who}${repeat}${pay}${when}${remindRow}
       ${lessonNotes}
       <div class="field">
         <div class="switch-row" style="margin:0">
@@ -912,6 +1048,7 @@ async function submitEvent() {
     singlePrice: draft.kind === "lesson" && draft.pay === "single" ? Number(draft.price) : null,
     allDay: draft.kind === "personal" && !!draft.allDay,
     lessonNotes: draft.lessonNotes ?? "",
+    remind: draft.remind ?? null,
   };
 
   // 修改固定課的某一堂：只動備註就不用問範圍
@@ -1056,6 +1193,14 @@ document.addEventListener("click", async (ev) => {
     render();
   }
   else if (a === "edit-studio") openStudioSheet(el.dataset.id);
+  else if (a === "push-enable") await enablePush();
+  else if (a === "push-disable") await disablePush();
+  else if (a === "push-test") {
+    try { const n = await store.sendTestPush(); toast(n ? "已送出測試通知，請看手機" : "這支手機還沒開啟通知"); }
+    catch (e) { console.error(e); toast("沒有送出成功，請檢查網路後再試"); }
+  }
+  else if (a === "remind-lead") await saveSettings({ remindMinutes: Number(el.dataset.v) }, "已更新提醒時間");
+  else if (a === "remind-lead-custom") { state.settings = { ...state.settings, remindMinutes: state.settings.remindMinutes === 120 ? 90 : state.settings.remindMinutes }; render(); }
   else if (a === "edit-course") openCourseSheet(el.dataset.id);
   else if (a === "back-studio") openStudioSheet(studioSheetId);
   else if (a === "remove-course") await removeCourse();
@@ -1304,6 +1449,10 @@ document.addEventListener("change", (ev) => {
   const el = ev.target;
   if (el.dataset.action === "toggle-personal") {
     state.showPersonal = el.checked; writePref("showPersonal", el.checked); render();
+  } else if (el.dataset.setting) {
+    saveSettings({ [el.dataset.setting]: el.checked });
+  } else if (el.dataset.action === "remind-toggle" && draft) {
+    draft.remind = el.checked;
   } else if (el.dataset.action === "allday-toggle" && draft) {
     draft.allDay = el.checked; renderSheet();
   } else if (el.dataset.action === "note-toggle" && draft) {
@@ -1345,6 +1494,14 @@ document.addEventListener("submit", async (ev) => {
     } catch (err) {
       renderLogin(/invalid/i.test(err.message) ? "Email 或密碼不對，請再試一次。" : "登入失敗，請檢查網路後再試一次。");
     }
+  } else if (form.dataset.form === "week-limit") {
+    const h = Number(form.hours.value);
+    if (!(h > 0)) return toast("請填大於 0 的時數");
+    await saveSettings({ weekLimit: h }, "已更新每週上限");
+  } else if (form.dataset.form === "remind-custom") {
+    const m = Number(form.mins.value);
+    if (!(m >= 5 && m <= 1440)) return toast("請填 5 到 1440 分鐘");
+    await saveSettings({ remindMinutes: m }, "已更新提醒時間");
   } else if (form.dataset.form === "studio") {
     await saveStudio();
   } else if (form.dataset.form === "course") {
@@ -1373,9 +1530,11 @@ async function loadCalendar() {
 
 async function boot() {
   $app.innerHTML = '<p class="loading">載入中…</p>';
-  const [students, studios, series, packages, courses] = await Promise.all([
-    store.listStudents(), store.listStudios(), store.listSeries(), store.listPackages(), store.listCourses(),
+  const [students, studios, series, packages, courses, settings] = await Promise.all([
+    store.listStudents(), store.listStudios(), store.listSeries(), store.listPackages(), store.listCourses(), store.getSettings(),
   ]);
+  state.settings = settings;
+  refreshPushStatus().then(() => { if (state.tab === "me" && !draft) render(); });
   state.courses = courses;
   state.packages = packages;
   state.students = students;

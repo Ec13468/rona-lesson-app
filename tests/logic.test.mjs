@@ -158,3 +158,35 @@ test("一般行程不受影響", () => {
   assert.equal(spanLabel(e, new Date(2026, 9, 20)), null);
   assert.equal(eventsOnDay([e], new Date(2026, 9, 21)).length, 0);
 });
+
+import { weekMinutes, gapsToday, hoursText } from "../web/js/logic.js";
+
+test("每週時數：週一到週日的課，取消和個人行程不算", () => {
+  const evs = [
+    ev("a", "lesson", new Date(2026, 9, 12, 9), new Date(2026, 9, 12, 10)),          // 週一 60
+    ev("b", "studio", new Date(2026, 9, 18, 9), new Date(2026, 9, 18, 10, 30)),      // 週日 90
+    ev("c", "lesson", new Date(2026, 9, 14, 9), new Date(2026, 9, 14, 10), { status: "cancelled" }),
+    ev("d", "personal", new Date(2026, 9, 14, 9), new Date(2026, 9, 14, 12)),
+    ev("e", "lesson", new Date(2026, 9, 19, 9), new Date(2026, 9, 19, 10)),          // 下週一
+  ];
+  assert.equal(weekMinutes(evs, new Date(2026, 9, 16)), 150);
+  assert.equal(hoursText(150), "2 小時 30 分");
+  assert.equal(hoursText(1200), "20 小時");
+});
+
+test("空檔：兩堂課之間空 2 小時以上才算", () => {
+  const now = at(8);
+  const evs = [ev("a", "lesson", at(10), at(11)), ev("b", "studio", at(13), at(14)), ev("c", "lesson", at(15), at(16))];
+  const g = gapsToday(evs, now);
+  assert.equal(g.length, 1);
+  assert.equal(g[0].after.id, "a");
+  assert.equal(g[0].minutes, 120);
+});
+
+test("空檔：中間有個人行程就不算；已經過去的空檔不列", () => {
+  const evs = [ev("a", "lesson", at(9), at(10)), ev("p", "personal", at(11), at(12)), ev("b", "lesson", at(14), at(15))];
+  assert.equal(gapsToday(evs, at(8)).length, 0);
+  const evs2 = [ev("a", "lesson", at(9), at(10)), ev("b", "lesson", at(13), at(14))];
+  assert.equal(gapsToday(evs2, at(13, 30)).length, 0);
+  assert.equal(gapsToday(evs2, at(12)).length, 1);
+});
