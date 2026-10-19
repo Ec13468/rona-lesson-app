@@ -337,3 +337,56 @@ button { cursor: pointer; }
 .rep-total .grand span { color: rgba(255,255,255,.8); }
 .rep-row span small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
 .rep-row span:last-child small { text-align: right; }
+
+/* 日期、時間選單（取代手機內建的選單，24 小時制） */
+.input.pick {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  text-align: left; font-variant-numeric: tabular-nums; font-weight: 600; cursor: pointer;
+}
+.input.pick.is-empty { color: var(--faint); font-weight: 400; }
+.input.pick .pick-ic { color: var(--muted); flex: none; }
+.input.pick:active { border-color: var(--lesson); }
+.picker-backdrop { z-index: 34; }
+.picker {
+  position: fixed; z-index: 35; left: 0; right: 0; bottom: 0; max-width: 520px; margin: 0 auto;
+  background: var(--surface); border-radius: 24px 24px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+  animation: rise .18s ease-out;
+}
+.pk-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.pk-head b { font-family: var(--display); font-size: 22px; }
+.pk-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; margin-bottom: 12px; }
+.pk-grid span { font-size: 12px; color: var(--faint); padding: 4px 0; }
+.pk-grid button {
+  border: 0; background: none; height: 42px; border-radius: 50%; font-size: 16px; font-variant-numeric: tabular-nums;
+  width: 42px; justify-self: center;
+}
+.pk-grid button.other { color: var(--faint); }
+.pk-grid button.is-today { box-shadow: inset 0 0 0 1.5px var(--lesson); color: var(--lesson); font-weight: 700; }
+.pk-grid button[aria-pressed="true"] { background: var(--lesson); color: #fff; font-weight: 700; box-shadow: none; }
+.pk-time-now { font-family: var(--display); font-size: 44px; text-align: center; font-variant-numeric: tabular-nums; margin: 0 0 8px; }
+.picker .label { display: block; font-size: 13px; color: var(--muted); margin: 6px 0; }
+.pk-hours, .pk-mins { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.pk-hours button, .pk-mins button {
+  border: 1.5px solid var(--line); background: var(--surface); border-radius: 12px; height: 40px;
+  font-size: 16px; font-variant-numeric: tabular-nums;
+}
+.pk-hours button[aria-pressed="true"], .pk-mins button[aria-pressed="true"] { background: var(--lesson); border-color: var(--lesson); color: #fff; font-weight: 700; }
+.picker .btn-row { margin-top: 4px; }
+.picker > .btn { margin-top: 14px; }
+
+/* 新增：第一步選課程或個人行程 */
+.group-seg { margin-bottom: 18px; }
+.group-seg button[aria-pressed="true"] { font-size: 17px; }
+
+/* 學生頁：上課筆記 */
+.ln-card {
+  display: block; width: 100%; text-align: left; border: 0; background: var(--surface);
+  border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; font-size: 15px;
+}
+.ln-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.ln-text { margin: 0; white-space: pre-wrap; line-height: 1.6; }
+.ln-empty { margin: 0; color: var(--lesson); font-weight: 600; }
+.ln-pre { margin: 0 0 4px; color: var(--muted); font-size: 14px; display: flex; gap: 4px; align-items: flex-start; }
+.ln-pre .mini { margin-top: 3px; }
+.ln-card.is-editing .btn-row { margin-top: 8px; }
+.ln-card.is-editing .btn { margin-top: 0; }

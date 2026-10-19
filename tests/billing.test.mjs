@@ -19,7 +19,7 @@ test("方案：上完一堂 → 已上 1、剩 9、收入 800", () => {
 });
 
 test("單堂付費：上完一堂收入 1,000，不會提醒繳費", () => {
-  const s = studentSummary({ id: "A", perLessonPrice: 1000 }, [], [lesson(15)], now);
+  const s = studentSummary(A, [], [lesson(15, { singlePrice: 1000 }), lesson(25, { singlePrice: 1000 })], now);
   assert.equal(s.income, 1000);
   assert.equal(s.alerts.length, 0);
 });
@@ -150,8 +150,8 @@ test("一對一認列：上個月上的課不算這個月；方案不夠的堂�
   assert.equal(r.rows[0].unpaid, 1);
 });
 
-test("一對一認列：單堂價學生", () => {
-  const r = lessonIncomeStatement([{ id: "A", perLessonPrice: 1000 }], () => [], [lesson(5), lesson(25)], new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+test("一對一認列：單堂付費的課", () => {
+  const r = lessonIncomeStatement([A], () => [], [lesson(5, { singlePrice: 1000 }), lesson(25, { singlePrice: 1000 })], new Date(2026, 9, 1), new Date(2026, 10, 1), now);
   assert.equal(r.confirmed, 1000);
   assert.equal(r.estimate, 1000);
 });
@@ -160,4 +160,15 @@ test("到期日：X 個月後，月底自動調整", () => {
   assert.equal(addMonthsKey("2026-10-19", 4), "2027-02-19");
   assert.equal(addMonthsKey("2026-10-31", 4), "2027-02-28");
   assert.equal(addMonthsKey("2026-01-31", 1), "2026-02-28");
+});
+
+test("單堂付費的課不扣方案", () => {
+  const s = studentSummary(A, [pkg({ lessons: 2, price: 1600 })], [lesson(14), lesson(15, { singlePrice: 1200 })], now);
+  assert.equal(s.remaining, 1);
+  assert.equal(s.income, 800 + 1200);
+});
+
+test("扣掉已預約（要扣方案的）後還能排幾堂", () => {
+  const s = studentSummary(A, [pkg({ lessons: 3, price: 2400 })], [lesson(25), lesson(26, { singlePrice: 900 })], now);
+  assert.equal(s.available, 2);
 });

@@ -132,3 +132,29 @@ test("固定課：每一堂的時間、時長、類型", () => {
 test("前一天（跨月）", () => {
   assert.equal(dayBefore("2026-11-01"), "2026-10-31");
 });
+
+import { spanLabel } from "../web/js/logic.js";
+
+test("跨日行程：經過的每一天都看得到，也會撞期", () => {
+  const trip = { id: "t", kind: "personal", start: new Date(2026, 9, 20, 9), end: new Date(2026, 9, 23, 18), status: "scheduled" };
+  assert.equal(eventsOnDay([trip], new Date(2026, 9, 19)).length, 0);
+  for (const d of [20, 21, 22, 23]) assert.equal(eventsOnDay([trip], new Date(2026, 9, d)).length, 1);
+  assert.equal(eventsOnDay([trip], new Date(2026, 9, 24)).length, 0);
+  assert.equal(findConflicts({ id: "x", start: new Date(2026, 9, 21, 10), end: new Date(2026, 9, 21, 11) }, [trip]).length, 1);
+  assert.deepEqual(spanLabel(trip, new Date(2026, 9, 20)), { time: "09:00", sub: "開始" });
+  assert.deepEqual(spanLabel(trip, new Date(2026, 9, 21)), { time: "整天", sub: null });
+  assert.deepEqual(spanLabel(trip, new Date(2026, 9, 23)), { time: "到 18:00", sub: "結束" });
+});
+
+test("整天行程：結束在隔天 0 點，不會多出一天", () => {
+  const off = { id: "o", kind: "personal", allDay: true, start: new Date(2026, 9, 20), end: new Date(2026, 9, 22), status: "scheduled" };
+  assert.equal(eventsOnDay([off], new Date(2026, 9, 21)).length, 1);
+  assert.equal(eventsOnDay([off], new Date(2026, 9, 22)).length, 0);
+  assert.deepEqual(spanLabel(off, new Date(2026, 9, 20)), { time: "整天", sub: null });
+});
+
+test("一般行程不受影響", () => {
+  const e = { id: "e", kind: "lesson", start: new Date(2026, 9, 20, 9), end: new Date(2026, 9, 20, 10), status: "scheduled" };
+  assert.equal(spanLabel(e, new Date(2026, 9, 20)), null);
+  assert.equal(eventsOnDay([e], new Date(2026, 9, 21)).length, 0);
+});

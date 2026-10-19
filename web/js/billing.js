@@ -10,20 +10,21 @@ export function consumes(e, now) {
   return isFinished(e, now);
 }
 
-// 依序把每堂課分配給方案（先扣最早買的）→ 單堂價 → 沒付費
+// 依序分配每堂課：預約時選單堂付費的照那堂金額；其他先扣最早買的方案；都沒有就是沒付費
 function allocate(student, packages, lessons) {
   const pk = [...packages]
     .sort((a, b) => a.purchasedOn.localeCompare(b.purchasedOn) || String(a.createdAt).localeCompare(String(b.createdAt)))
     .map((p) => ({ ...p, used: 0, value: p.price / p.lessons }));
-  const single = student.perLessonPrice ?? null;
   const history = [];
   for (const e of [...lessons].sort((a, b) => a.start - b.start)) {
+    if (e.singlePrice != null) {
+      history.push({ event: e, source: "single", amount: e.singlePrice });
+      continue;
+    }
     const p = pk.find((x) => x.used < x.lessons);
     if (p) {
       p.used++;
       history.push({ event: e, source: "package", packageId: p.id, amount: p.value });
-    } else if (single !== null) {
-      history.push({ event: e, source: "single", amount: single });
     } else {
       history.push({ event: e, source: "unpaid", amount: 0 });
     }
@@ -32,13 +33,13 @@ function allocate(student, packages, lessons) {
 }
 
 // 學生的扣堂與收入
-// student：{ id, perLessonPrice }，packages：[{ id, lessons, price, purchasedOn, expiresOn, createdAt }]
+// student：{ id }，packages：[{ id, lessons, price, purchasedOn, expiresOn, createdAt }]
 export function studentSummary(student, packages, events, now) {
   const mine = events.filter((e) => e.kind === "lesson" && e.studentId === student.id);
   const consumed = mine.filter((e) => consumes(e, now));
   const booked = mine.filter((e) => e.status === "scheduled" && !isFinished(e, now));
+  const bookedPkg = booked.filter((e) => e.singlePrice == null); // 要扣方案的預約
   const { pk, history } = allocate(student, packages, consumed);
-  const single = student.perLessonPrice ?? null;
   const unpaid = history.filter((h) => h.source === "unpaid").length;
   const income = history.reduce((n, h) => n + h.amount, 0);
 
@@ -47,14 +48,12 @@ export function studentSummary(student, packages, events, now) {
   const warnUntil = dayKey(addDays(startOfDay(now), EXPIRY_WARN_DAYS));
   const alerts = [];
 
-  if (single === null) {
-    if (unpaid > 0) alerts.push({ level: "warn", text: `有 ${unpaid} 堂課沒有方案可以扣，請提醒繳費` });
-    else if (remaining === 0 && (pk.length > 0 || booked.length > 0)) alerts.push({ level: "warn", text: "方案已用完，請提醒繳費" });
-    if (booked.length > remaining && unpaid === 0 && remaining > 0) {
-      alerts.push({ level: "warn", text: `已預約 ${booked.length} 堂，但方案只剩 ${remaining} 堂` });
-    }
-    if (remaining === 1) alerts.push({ level: "warn", text: "方案只剩 1 堂，快用完了" });
+  if (unpaid > 0) alerts.push({ level: "warn", text: `有 ${unpaid} 堂課沒有方案可以扣，請提醒繳費` });
+  else if (remaining === 0 && (pk.length > 0 || bookedPkg.length > 0)) alerts.push({ level: "warn", text: "方案已用完，請提醒繳費" });
+  if (bookedPkg.length > remaining && unpaid === 0 && remaining > 0) {
+    alerts.push({ level: "warn", text: `已預約 ${bookedPkg.length} 堂，但方案只剩 ${remaining} 堂` });
   }
+  if (remaining === 1) alerts.push({ level: "warn", text: "方案只剩 1 堂，快用完了" });
   for (const p of pk) {
     const left = p.lessons - p.used;
     if (!p.expiresOn || left <= 0) continue;
@@ -67,6 +66,7 @@ export function studentSummary(student, packages, events, now) {
     attended: consumed.length,
     booked: booked.length,
     remaining,
+    available: remaining - bookedPkg.length, // 扣掉已預約後還能排幾堂
     income: Math.round(income),
     paid: packages.reduce((n, p) => n + p.price, 0),
     unpaid,

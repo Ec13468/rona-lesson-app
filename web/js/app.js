@@ -3,7 +3,7 @@ import { DEMO } from "./config.js";
 import {
   WEEKDAYS, addDays, startOfDay, startOfWeek, sameDay, dayKey, hhmm, minutesBetween,
   monthGrid, isFinished, findConflicts, eventsOnDay, todayView,
-  SERIES_HORIZON_DAYS, parseDay, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
+  SERIES_HORIZON_DAYS, parseDay, spanLabel, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
 } from "./logic.js";
 import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey } from "./billing.js";
 
@@ -49,6 +49,8 @@ const icons = {
   people: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.9-3.2 3-4.6 5.5-4.6s4.6 1.4 5.5 4.6"/><path d="M15.5 5.6a3 3 0 010 5.8M17.2 14.9c1.6.5 2.7 1.9 3.3 4.6"/></svg>',
   report: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>',
   back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+  calSmall: '<svg class="pick-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  clock: '<svg class="pick-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
   check: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M7.5 12.3l3 3 6-6.3"/></svg>',
   note: '<svg class="mini" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="有備註"><path d="M5 4h14v11l-5 5H5z"/><path d="M14 20v-5h5M8.5 9h7M8.5 12.5h4"/></svg>',
   repeat: '<svg class="mini" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="固定每週"><path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 013-3h13M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 01-3 3H4"/></svg>',
@@ -148,18 +150,21 @@ function render() {
     <nav class="nav">${nav("today", "今天", icons.today)}${nav("calendar", "日曆", icons.cal)}${nav("students", "學生", icons.people)}${nav("report", "報表", icons.report)}${nav("me", "我的", icons.me)}</nav>`;
 }
 
-function itemHTML(e, now = new Date()) {
+function itemHTML(e, now = new Date(), day = e.start) {
   const cls = [e.kind];
   let tag = "";
   if (e.status === "cancelled") { cls.push("is-cancelled"); tag = '<span class="tag cancel">已取消</span>'; }
   else if (isFinished(e, now)) { cls.push("is-past"); if (e.kind !== "personal") tag = '<span class="tag done">已上完</span>'; }
   const marks = `${e.seriesId ? icons.repeat : ""}${e.note ? icons.note : ""}`;
+  const span = spanLabel(e, day);
+  const lastDay = e.allDay ? addDays(e.end, -1) : e.end;
+  const range = span ? (sameDay(e.start, lastDay) ? "整天" : `${md(e.start)}–${md(lastDay)}`) : `到 ${hhmm(e.end)}`;
   return `<li><button class="item ${cls.join(" ")}" data-action="open" data-id="${e.id}">
-    <span class="item-time">${hhmm(e.start)}<small>${minutesBetween(e.start, e.end)} 分鐘</small></span>
+    <span class="item-time">${span ? `${span.time}${span.sub ? `<small>${span.sub}</small>` : ""}` : `${hhmm(e.start)}<small>${minutesBetween(e.start, e.end)} 分鐘</small>`}</span>
     <span class="item-bar"></span>
     <span class="item-body">
       <span class="item-title">${esc(eventTitle(e))}${marks ? `<span class="marks">${marks}</span>` : ""}${tag}</span>
-      <span class="item-sub">${esc(eventSub(e))}・到 ${hhmm(e.end)}</span>
+      <span class="item-sub">${esc(eventSub(e))}・${range}</span>
     </span></button></li>`;
 }
 
@@ -175,7 +180,7 @@ function viewToday() {
     status = `<p class="today-status">今天沒有排課</p>`;
   }
   const list = v.upcoming.length
-    ? `<ul class="timeline">${v.upcoming.map((e) => itemHTML(e, now)).join("")}</ul>`
+    ? `<ul class="timeline">${v.upcoming.map((e) => itemHTML(e, now, now)).join("")}</ul>`
     : v.state === "none" ? `<div class="empty"><p>按右下角的 ＋ 新增課程或個人行程。</p></div>` : "";
   return `
     <h1 class="today-date">${now.getMonth() + 1}月${now.getDate()}日</h1>
@@ -205,7 +210,7 @@ function viewCalendar() {
   const today = startOfDay(new Date());
   if (mode === "day") {
     const list = eventsOnDay(all, c);
-    body = list.length ? `<ul class="timeline">${list.map((e) => itemHTML(e)).join("")}</ul>` : `<div class="empty"><p>這天沒有行程。</p></div>`;
+    body = list.length ? `<ul class="timeline">${list.map((e) => itemHTML(e, new Date(), c)).join("")}</ul>` : `<div class="empty"><p>這天沒有行程。</p></div>`;
   } else if (mode === "week") {
     const s = startOfWeek(c);
     body = Array.from({ length: 7 }, (_, i) => {
@@ -213,7 +218,7 @@ function viewCalendar() {
       const list = eventsOnDay(all, d);
       return `<section class="week-day ${sameDay(d, today) ? "is-today" : ""}">
         <h3>${md(d)} 週${WEEKDAYS[d.getDay()]}${sameDay(d, today) ? "・今天" : ""}</h3>
-        ${list.length ? `<ul class="timeline">${list.map((e) => itemHTML(e)).join("")}</ul>` : '<div class="none">沒有行程</div>'}
+        ${list.length ? `<ul class="timeline">${list.map((e) => itemHTML(e, new Date(), d)).join("")}</ul>` : '<div class="none">沒有行程</div>'}
       </section>`;
     }).join("");
   } else {
@@ -228,7 +233,7 @@ function viewCalendar() {
     const list = eventsOnDay(all, c);
     body = `<div class="month">${["一", "二", "三", "四", "五", "六", "日"].map((w) => `<span class="wd">${w}</span>`).join("")}${cells}</div>
       <div class="month-list"><h3>${c.getMonth() + 1}月${c.getDate()}日 週${WEEKDAYS[c.getDay()]}</h3>
-      ${list.length ? `<ul class="timeline">${list.map((e) => itemHTML(e)).join("")}</ul>` : '<div class="empty"><p>這天沒有行程。</p></div>'}</div>`;
+      ${list.length ? `<ul class="timeline">${list.map((e) => itemHTML(e, new Date(), c)).join("")}</ul>` : '<div class="empty"><p>這天沒有行程。</p></div>'}</div>`;
   }
 
   return `
@@ -262,7 +267,7 @@ function viewStudents() {
   const rows = list.map((st) => {
     const sm = summaryOf(st);
     const warn = sm.alerts.find((a) => a.level === "warn");
-    const right = st.perLessonPrice != null && sm.remaining === 0 ? `單堂 ${st.perLessonPrice}` : `剩 ${sm.remaining} 堂`;
+    const right = sm.packages.length ? `剩 ${sm.remaining} 堂` : sm.history.some((h) => h.source === "single") ? "單堂付費" : "沒有方案";
     return `<li><button class="stu-row" data-action="open-student" data-id="${st.id}">
       <span class="stu-name">${esc(st.name)}${warn ? `<span class="stu-warn">${esc(warn.text)}</span>` : ""}</span>
       <span class="stu-left ${warn ? "is-warn" : ""}">${right}</span></button></li>`;
@@ -285,10 +290,18 @@ function viewStudentDetail(st) {
         <small>${mdKey(p.purchasedOn)} 購買${p.expiresOn ? `・${mdKey(p.expiresOn)} 到期` : "・不設期限"}</small></span>
       <span class="pkg-left">剩 ${p.left} 堂<span class="muted">編輯</span></span>
     </button>`).join("");
-  const src = { package: "扣方案", single: "單堂", unpaid: "沒有方案" };
-  const hist = sm.history.slice().reverse().slice(0, 30).map((h) => `
-    <div class="panel-row"><span>${md(h.event.start)} ${hhmm(h.event.start)}${h.event.status === "cancelled" ? '<span class="tag cancel">取消・扣堂</span>' : ""}</span>
-      <span class="${h.source === "unpaid" ? "warn-text" : "muted"}">${src[h.source]}${h.amount ? `・${money(h.amount)}` : ""}</span></div>`).join("");
+  // 上過的課（含取消但扣堂的），每一堂都能寫上課筆記
+  const hist = sm.history.slice().reverse().map(({ event: e }) => {
+    const head = `<div class="ln-head"><b>${e.start.getFullYear() !== new Date().getFullYear() ? e.start.getFullYear() + "/" : ""}${md(e.start)}（${WEEKDAYS[e.start.getDay()]}）${hhmm(e.start)}</b>${e.status === "cancelled" ? '<span class="tag cancel">取消・扣堂</span>' : ""}</div>`;
+    if (noteEditId === e.id) {
+      return `<div class="ln-card is-editing">${head}
+        <textarea class="input note-input" id="ln-text" rows="4" placeholder="這堂課的狀況、進度、下次要注意的地方">${esc(e.lessonNotes)}</textarea>
+        <div class="btn-row"><button type="button" class="btn quiet" data-action="note-cancel">取消</button><button type="button" class="btn" data-action="note-save" data-id="${e.id}">儲存筆記</button></div></div>`;
+    }
+    return `<button class="ln-card" data-action="note-edit" data-id="${e.id}">${head}
+      ${e.note ? `<p class="ln-pre">${icons.note}${esc(e.note)}</p>` : ""}
+      <p class="${e.lessonNotes ? "ln-text" : "ln-empty"}">${e.lessonNotes ? esc(e.lessonNotes) : "＋ 寫上課筆記"}</p></button>`;
+  }).join("");
   return `
     <button class="back-btn" data-action="back-students">${icons.back}學生</button>
     <h1 class="page-title">${esc(st.name)}</h1>
@@ -302,14 +315,8 @@ function viewStudentDetail(st) {
     <h2 class="section-title">方案</h2>
     <div class="panel">${pk || '<div class="panel-row"><span class="muted">還沒有方案</span></div>'}</div>
     ${pkgForm && pkgForm.id ? "" : packageForm("page")}
-    <h2 class="section-title">單堂價</h2>
-    <form class="inline-add" data-form="per-price" data-id="${st.id}">
-      <input class="input" name="price" type="number" min="0" step="50" inputmode="numeric" value="${st.perLessonPrice ?? ""}" placeholder="沒有就留空" aria-label="單堂價">
-      <button class="chip" type="submit" aria-pressed="true">儲存</button>
-    </form>
-    <p class="hint">方案用完後，會用單堂價計算收入；沒有設單堂價，就會提醒繳費。</p>
     <h2 class="section-title">上課紀錄</h2>
-    <div class="panel">${hist || '<div class="panel-row"><span class="muted">還沒有上過課</span></div>'}</div>
+    ${hist || '<div class="panel"><div class="panel-row"><span class="muted">還沒有上過課</span></div></div>'}
     <button class="btn danger" data-action="remove-ref" data-type="student" data-id="${st.id}" style="margin-top:24px">刪除這位學生</button>`;
 }
 
@@ -326,11 +333,11 @@ function packageForm(where) {
       <div class="field"><label for="pk-lessons">堂數</label><input class="input" id="pk-lessons" type="number" min="1" inputmode="numeric" value="${p ? p.lessons : 10}"></div>
       <div class="field"><label for="pk-price">金額（元）</label><input class="input" id="pk-price" type="number" min="0" step="100" inputmode="numeric" value="${p ? p.price : ""}" placeholder="例如 8000"></div>
     </div>
-    <div class="field"><label for="pk-date">購買日期</label><input class="input" id="pk-date" type="date" value="${p ? p.purchasedOn : dayKey(new Date())}"></div>
+    <div class="field"><span class="label">購買日期</span>${pickField("pk-date", "date", p ? p.purchasedOn : dayKey(new Date()))}</div>
     <div class="field"><span class="label">到期日</span>
       <div class="seg exp-seg" role="group" aria-label="到期日">${modeBtn("months", "幾個月後")}${modeBtn("date", "指定日期")}${modeBtn("none", "不設期限")}</div>
       <div class="exp-months inline-add"><input class="input" id="pk-months" type="number" min="1" max="60" inputmode="numeric" value="4" aria-label="幾個月後到期"><span style="align-self:center">個月後到期</span></div>
-      <div class="exp-date"><input class="input" id="pk-exp" type="date" value="${p?.expiresOn ?? ""}" aria-label="到期日"></div>
+      <div class="exp-date">${pickField("pk-exp", "date", p?.expiresOn ?? "", { placeholder: "選到期日" })}</div>
     </div>
     <p class="form-error" id="pk-error"></p>
     <div class="btn-row"><button type="button" class="btn quiet" data-action="package-close">${p ? "取消編輯" : "先不要"}</button><button type="button" class="btn" data-action="package-save" data-where="${where}">${p ? "儲存方案" : "登記方案"}</button></div>
@@ -434,12 +441,17 @@ let draft = null;
 function openSheet(existing) {
   const base = state.tab === "calendar" ? state.cursor : new Date();
   if (existing) {
+    const endShown = existing.allDay ? addDays(existing.end, -1) : existing.end;
     draft = {
       ...existing,
+      group: existing.kind === "personal" ? "personal" : "class",
       date: dayKey(existing.start), time: hhmm(existing.start), mins: minutesBetween(existing.start, existing.end),
+      endDay: dayKey(endShown), endTime: hhmm(existing.end),
       noteOn: !!existing.note, repeat: "once", endDate: "",
+      pay: existing.singlePrice != null ? "single" : "package",
+      price: existing.singlePrice != null ? String(existing.singlePrice) : "",
     };
-    draft.original = { date: draft.date, time: draft.time, mins: draft.mins, title: draft.title, studentId: draft.studentId, courseId: draft.courseId };
+    draft.original = { date: draft.date, time: draft.time, mins: draft.mins, title: draft.title, studentId: draft.studentId, courseId: draft.courseId, price: draft.pay === "single" ? draft.price : null };
   } else {
     const now = new Date();
     const start = new Date(base);
@@ -447,22 +459,46 @@ function openSheet(existing) {
     if (sameDay(base, now)) start.setHours(Math.min(now.getHours() + 1, 21), 0, 0, 0);
     else start.setHours(10, 0, 0, 0);
     draft = {
-      id: null, kind: "lesson", studentId: activeStudents()[0]?.id ?? null, studioId: null, courseId: null, title: "",
+      id: null, group: "class", kind: "lesson", studentId: activeStudents()[0]?.id ?? null, studioId: null, courseId: null, title: "",
       date: dayKey(start), time: hhmm(start), mins: 60, status: "scheduled", deduct: true,
-      note: "", noteOn: false, repeat: "once", endDate: "", seriesId: null,
+      endDay: dayKey(start), endTime: hhmm(new Date(start.getTime() + 3600000)), allDay: false,
+      note: "", noteOn: false, lessonNotes: "", repeat: "once", endDate: "", seriesId: null,
+      pay: "package", price: "",
     };
+    defaultPay();
   }
   draft.error = "";
   draft.adding = null; // "student" | "studio" | "course"
   renderSheet();
 }
 
-function billingLine(st) {
+// 選了學生後預設的付費方式：方案還有堂數就扣方案；沒有的話沿用他上次單堂付的金額
+function defaultPay() {
+  const st = findStudent(draft.studentId);
+  if (!st) return;
+  if (summaryOf(st).available > 0) { draft.pay = "package"; return; }
+  const last = allEvents().filter((e) => e.kind === "lesson" && e.studentId === st.id && e.singlePrice != null).sort((a, b) => b.start - a.start)[0];
+  if (last) { draft.pay = "single"; draft.price = String(last.singlePrice); }
+  else draft.pay = "package";
+}
+
+// 一對一的付費方式：扣方案（沒方案時才出現登記按鈕）或單堂付費（輸入金額）
+function paySection(st) {
   const sm = summaryOf(st);
-  const warn = sm.alerts.find((a) => a.level === "warn");
-  const text = st.perLessonPrice != null && sm.remaining === 0 ? `單堂付費 ${money(st.perLessonPrice)}` : `方案剩 ${sm.remaining} 堂`;
-  return `<div class="bill-line ${warn ? "is-warn" : ""}">${warn ? esc(warn.text) : text}</div>
-    ${warn || pkgForm ? packageForm("sheet") : ""}`;
+  const seg = `<div class="seg type-seg" role="group" aria-label="付費方式">
+      <button type="button" data-action="pay" data-pay="package" aria-pressed="${draft.pay === "package"}">扣方案</button>
+      <button type="button" data-action="pay" data-pay="single" aria-pressed="${draft.pay === "single"}">單堂付費</button>
+    </div>`;
+  let body;
+  if (draft.pay === "single") {
+    body = `<div class="inline-add" style="margin-top:0"><input class="input" id="price" type="number" min="0" step="50" inputmode="numeric" data-bind="price" value="${esc(draft.price)}" placeholder="這堂的金額" aria-label="單堂金額"><span style="align-self:center">元${draft.repeat === "weekly" ? "／每堂" : ""}</span></div>`;
+  } else if (sm.available > 0 || (draft.id && draft.singlePrice == null && sm.remaining > 0)) {
+    body = `<div class="bill-line">方案還可以排 ${Math.max(sm.available, 0)} 堂（剩 ${sm.remaining} 堂）</div>`;
+  } else {
+    body = `<div class="bill-line is-warn">${esc(st.name)}沒有方案可以扣了，請提醒繳費</div>${packageForm("sheet")}`;
+  }
+  const warn = sm.alerts.find((a) => a.level === "warn" && !/沒有方案|已用完/.test(a.text));
+  return `<div class="field"><span class="label">付費方式</span>${seg}${body}${warn && draft.pay === "package" ? `<div class="bill-line is-warn">${esc(warn.text)}</div>` : ""}</div>`;
 }
 
 function feeHint() {
@@ -478,30 +514,116 @@ function closeSheet() {
 }
 
 function draftTimes() {
-  const [y, m, d] = draft.date.split("-").map(Number);
-  const [hh, mm] = draft.time.split(":").map(Number);
-  const start = new Date(y, m - 1, d, hh, mm);
+  const at = (key, time) => { const d = parseDay(key); const [hh, mm] = time.split(":").map(Number); d.setHours(hh, mm, 0, 0); return d; };
+  if (draft.kind === "personal") {
+    if (draft.allDay) return { start: parseDay(draft.date), end: addDays(parseDay(draft.endDay), 1) };
+    return { start: at(draft.date, draft.time), end: at(draft.endDay, draft.endTime) };
+  }
+  const start = at(draft.date, draft.time);
   return { start, end: new Date(start.getTime() + draft.mins * 60000) };
+}
+
+// ---------- 日期、時間選單（24 小時制） ----------
+const dateLabel = (key) => {
+  if (!key) return "";
+  const d = parseDay(key);
+  return `${d.getFullYear() !== new Date().getFullYear() ? d.getFullYear() + "/" : ""}${d.getMonth() + 1}/${d.getDate()}（${WEEKDAYS[d.getDay()]}）`;
+};
+function pickField(id, type, value, { bind = "", placeholder = "", clearable = false } = {}) {
+  const label = type === "date" ? dateLabel(value) : value;
+  return `<input type="hidden" id="${id}" value="${esc(value ?? "")}" ${bind ? `data-bind="${bind}"` : ""}>
+    <button type="button" class="input pick ${label ? "" : "is-empty"}" data-action="open-picker" data-type="${type}" data-for="${id}" ${clearable ? 'data-clearable="1"' : ""}>
+      <span>${label || placeholder}</span>${type === "date" ? icons.calSmall : icons.clock}</button>`;
+}
+
+let picker = null; // { type, for, month, hour, minute, clearable }
+function openPicker(el) {
+  const input = document.getElementById(el.dataset.for);
+  const v = input.value;
+  picker = { type: el.dataset.type, for: el.dataset.for, clearable: !!el.dataset.clearable };
+  if (picker.type === "date") {
+    const d = v ? parseDay(v) : new Date();
+    picker.month = new Date(d.getFullYear(), d.getMonth(), 1);
+  } else {
+    const [h, m] = (v || "10:00").split(":").map(Number);
+    picker.hour = h; picker.minute = m - (m % 5);
+  }
+  renderPicker();
+}
+
+function renderPicker() {
+  // 舊版頁面可能還沒有這個容器（網站更新後的前幾分鐘），沒有就自己建一個
+  let root = document.getElementById("picker-root");
+  if (!root) { root = document.createElement("div"); root.id = "picker-root"; document.body.appendChild(root); }
+  if (!picker) { root.innerHTML = ""; return; }
+  const value = document.getElementById(picker.for).value;
+  let body;
+  if (picker.type === "date") {
+    const m = picker.month, today = startOfDay(new Date());
+    const cells = monthGrid(m.getFullYear(), m.getMonth()).map((d) => {
+      const k = dayKey(d);
+      const cls = [d.getMonth() !== m.getMonth() ? "other" : "", sameDay(d, today) ? "is-today" : ""].join(" ");
+      return `<button type="button" class="${cls}" data-action="pick-date" data-day="${k}" aria-pressed="${k === value}">${d.getDate()}</button>`;
+    }).join("");
+    body = `<div class="pk-head">
+        <button type="button" class="icon-btn" data-action="picker-month" data-dir="-1" aria-label="上個月">${icons.prev}</button>
+        <b>${m.getFullYear()}年${m.getMonth() + 1}月</b>
+        <button type="button" class="icon-btn" data-action="picker-month" data-dir="1" aria-label="下個月">${icons.next}</button>
+      </div>
+      <div class="pk-grid">${["一", "二", "三", "四", "五", "六", "日"].map((w) => `<span>${w}</span>`).join("")}${cells}</div>
+      <div class="btn-row">${picker.clearable ? '<button type="button" class="btn quiet" data-action="pick-clear">不設定</button>' : '<button type="button" class="btn quiet" data-action="pick-today">今天</button>'}<button type="button" class="btn quiet" data-action="close-picker">關閉</button></div>`;
+  } else {
+    const pad = (n) => String(n).padStart(2, "0");
+    const hours = Array.from({ length: 24 }, (_, h) => `<button type="button" data-action="pick-hour" data-v="${h}" aria-pressed="${h === picker.hour}">${pad(h)}</button>`).join("");
+    const mins = Array.from({ length: 12 }, (_, i) => i * 5).map((m) => `<button type="button" data-action="pick-minute" data-v="${m}" aria-pressed="${m === picker.minute}">${pad(m)}</button>`).join("");
+    body = `<div class="pk-time-now">${pad(picker.hour)}:${pad(picker.minute)}</div>
+      <span class="label">時</span><div class="pk-hours">${hours}</div>
+      <span class="label">分</span><div class="pk-mins">${mins}</div>
+      <button type="button" class="btn" data-action="pick-time-done">完成</button>`;
+  }
+  root.innerHTML = `<div class="backdrop picker-backdrop" data-action="close-picker"></div>
+    <div class="picker" role="dialog" aria-modal="true" aria-label="${picker.type === "date" ? "選日期" : "選時間"}">${body}</div>`;
+}
+
+// 選好後寫回欄位，觸發 input 事件讓畫面上的提示跟著更新
+function setPicked(value) {
+  const input = document.getElementById(picker.for);
+  input.value = value;
+  const btn = document.querySelector(`[data-action="open-picker"][data-for="${picker.for}"]`);
+  if (btn) {
+    btn.querySelector("span").textContent = (picker.type === "date" ? dateLabel(value) : value) || "不設定";
+    btn.classList.toggle("is-empty", !value);
+  }
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  picker = null;
+  renderPicker();
 }
 
 function renderSheet() {
   if (!draft) return;
   const editing = !!draft.id;
   const k = draft.kind;
+  const personal = k === "personal";
   const custom = draft.mins !== 60;
   let end = "";
   try { end = hhmm(draftTimes().end); } catch (_) {}
+
+  // 第一步：課程或個人行程
+  const groupSeg = editing ? "" : `
+    <div class="seg type-seg group-seg" role="group" aria-label="新增什麼">
+      <button type="button" data-action="group" data-group="class" aria-pressed="${!personal}">課程</button>
+      <button type="button" data-action="group" data-group="personal" aria-pressed="${personal}">個人行程</button>
+    </div>`;
 
   const catChip = (kind, label, studioId = "") => {
     const on = kind === k && (kind !== "studio" || draft.studioId === studioId);
     return `<button type="button" class="chip cat-${kind}" data-action="kind" data-kind="${kind}" data-studio="${studioId}" aria-pressed="${on}">${esc(label)}</button>`;
   };
-  const category = editing ? "" : `
+  const category = editing || personal ? "" : `
     <div class="field"><span class="label">分類</span>
       <div class="chips">
         ${catChip("lesson", "一對一")}
         ${activeStudios().map((s) => catChip("studio", s.name, s.id)).join("")}
-        ${catChip("personal", "個人行程")}
         ${draft.adding === "studio" ? "" : '<button type="button" class="chip add" data-action="adding" data-what="studio">＋ 新增教室</button>'}
       </div>
       ${draft.adding === "studio" ? `<div class="inline-add"><input class="input" id="new-name" placeholder="教室名稱，例如 52sYoga" autocomplete="off"><button type="button" class="chip" data-action="add-studio" aria-pressed="true">加入</button></div>` : ""}
@@ -515,7 +637,6 @@ function renderSheet() {
         ${draft.adding === "student" ? "" : '<button type="button" class="chip add" data-action="adding" data-what="student">＋ 新增學生</button>'}
       </div>
       ${draft.adding === "student" ? `<div class="inline-add"><input class="input" id="new-name" placeholder="學生名字" autocomplete="off"><button type="button" class="chip" data-action="add-student" aria-pressed="true">加入</button></div>` : ""}
-      ${draft.studentId && findStudent(draft.studentId) ? billingLine(findStudent(draft.studentId)) : ""}
     </div>`;
   } else if (k === "studio") {
     who = `<div class="field"><span class="label">課程種類</span>
@@ -531,10 +652,10 @@ function renderSheet() {
         <div class="end-hint" id="fee-hint">${feeHint()}</div></div>`;
     }
   } else {
-    who = `<div class="field"><label for="title">名稱</label><input class="input" id="title" data-bind="title" value="${esc(draft.title)}" placeholder="例如：看牙醫" autocomplete="off"></div>`;
+    who = `<div class="field"><label for="title">名稱</label><input class="input" id="title" data-bind="title" value="${esc(draft.title)}" placeholder="例如：看牙醫、台南旅行" autocomplete="off"></div>`;
   }
 
-  const canRepeat = !editing && k !== "personal";
+  const canRepeat = !editing && !personal;
   const weekday = (() => { try { return WEEKDAYS[parseDay(draft.date).getDay()]; } catch (_) { return ""; } })();
   const repeat = canRepeat ? `
     <div class="seg type-seg" role="group" aria-label="單次或固定每週">
@@ -542,44 +663,66 @@ function renderSheet() {
       <button type="button" data-action="repeat" data-repeat="weekly" aria-pressed="${draft.repeat === "weekly"}">固定每週</button>
     </div>` : "";
   const weekly = canRepeat && draft.repeat === "weekly" ? `
-    <div class="field"><label for="end-date">結束日期（不填就一直排下去）</label>
-      <input class="input" id="end-date" type="date" data-bind="endDate" value="${draft.endDate}" min="${draft.date}">
+    <div class="field"><span class="label">結束日期（不設定就一直排下去）</span>
+      ${pickField("end-date", "date", draft.endDate, { bind: "endDate", placeholder: "不設定", clearable: true })}
       <div class="end-hint" id="repeat-hint">每週${weekday} ${draft.time} 上課</div>
     </div>` : "";
+
+  const pay = k === "lesson" && findStudent(draft.studentId) ? paySection(findStudent(draft.studentId)) : "";
+
+  // 時間：課程是開始時間＋時長；個人行程是開始到結束（可跨日、可整天）
+  const when = personal ? `
+    <div class="field"><div class="switch-row" style="margin:0"><span id="allday-label">整天</span>
+      <label class="switch"><input type="checkbox" data-action="allday-toggle" aria-labelledby="allday-label" ${draft.allDay ? "checked" : ""}><span></span></label></div></div>
+    <div class="${draft.allDay ? "" : "row2"}">
+      <div class="field"><span class="label">開始日期</span>${pickField("date", "date", draft.date, { bind: "date" })}</div>
+      ${draft.allDay ? "" : `<div class="field"><span class="label">開始時間</span>${pickField("time", "time", draft.time, { bind: "time" })}</div>`}
+    </div>
+    <div class="${draft.allDay ? "" : "row2"}">
+      <div class="field"><span class="label">結束日期</span>${pickField("end-day", "date", draft.endDay, { bind: "endDay" })}</div>
+      ${draft.allDay ? "" : `<div class="field"><span class="label">結束時間</span>${pickField("end-time", "time", draft.endTime, { bind: "endTime" })}</div>`}
+    </div>` : `
+    <div class="row2">
+      <div class="field"><span class="label">${draft.repeat === "weekly" ? "第一堂日期" : "日期"}</span>${pickField("date", "date", draft.date, { bind: "date" })}</div>
+      <div class="field"><span class="label">開始時間</span>${pickField("time", "time", draft.time, { bind: "time" })}</div>
+    </div>
+    ${weekly}
+    <div class="field"><span class="label">時長</span>
+      <div class="chips">
+        <button type="button" class="chip" data-action="mins" aria-pressed="${!custom}">60 分</button>
+        <button type="button" class="chip" data-action="mins-custom" aria-pressed="${custom}">自訂</button>
+      </div>
+      ${custom ? `<div class="inline-add"><input class="input" id="mins" type="number" min="5" max="600" step="5" data-bind="mins" value="${draft.mins}" inputmode="numeric"><span style="align-self:center">分鐘</span></div>` : ""}
+      <div class="end-hint" id="end-hint">${end ? `到 ${end} 結束` : ""}</div>
+    </div>`;
+
+  // 上課筆記：一對一課開始後才會出現
+  const started = editing && draft.start && draft.start <= new Date();
+  const lessonNotes = k === "lesson" && started ? `
+    <div class="field"><label for="lesson-notes">上課筆記</label>
+      <textarea class="input note-input" id="lesson-notes" data-bind="lessonNotes" rows="3" placeholder="這堂課的狀況、進度、下次要注意的地方">${esc(draft.lessonNotes)}</textarea></div>` : "";
 
   const seriesNote = editing && draft.seriesId ? `<div class="state-note">${icons.repeat} 這是固定每週的課，修改時可以選只改這一堂，或這一堂和之後的都改。</div>` : "";
   const statusNote = draft.status === "cancelled"
     ? `<div class="state-note">這堂課已取消${k === "lesson" ? `（${draft.deduct ? "有扣堂數" : "沒扣堂數"}）` : ""}。</div>` : "";
 
   const actions = [];
-  if (editing && k !== "personal" && draft.status === "scheduled") actions.push('<button type="button" class="btn quiet" data-action="cancel-event">取消這堂課</button>');
-  if (editing && k !== "personal" && draft.status === "cancelled") actions.push('<button type="button" class="btn quiet" data-action="restore">恢復這堂課</button>');
-  if (editing) actions.push(`<button type="button" class="btn danger" data-action="delete">${k === "personal" ? "刪除這個行程" : "刪除這堂課"}</button>`);
+  if (editing && !personal && draft.status === "scheduled") actions.push('<button type="button" class="btn quiet" data-action="cancel-event">取消這堂課</button>');
+  if (editing && !personal && draft.status === "cancelled") actions.push('<button type="button" class="btn quiet" data-action="restore">恢復這堂課</button>');
+  if (editing) actions.push(`<button type="button" class="btn danger" data-action="delete">${personal ? "刪除這個行程" : "刪除這堂課"}</button>`);
 
   const heading = editing
     ? (k === "lesson" ? "編輯一對一" : k === "studio" ? `編輯 ${esc(studioName(draft.studioId))}` : "編輯個人行程")
     : "新增";
-  const btnClass = k === "personal" ? "personal" : k === "studio" ? "studio" : "";
+  const btnClass = personal ? "personal" : k === "studio" ? "studio" : "";
 
   $sheetRoot.innerHTML = `
     <div class="backdrop" data-action="close-sheet"></div>
     <form class="sheet" data-form="event" role="dialog" aria-modal="true" aria-label="${editing ? "編輯" : "新增"}">
       <div class="grip"></div>
       <h2>${heading}</h2>
-      ${seriesNote}${statusNote}${category}${who}${repeat}
-      <div class="row2">
-        <div class="field"><label for="date">${draft.repeat === "weekly" ? "第一堂日期" : "日期"}</label><input class="input" id="date" type="date" data-bind="date" value="${draft.date}" required></div>
-        <div class="field"><label for="time">開始時間</label><input class="input" id="time" type="time" data-bind="time" value="${draft.time}" step="300" required></div>
-      </div>
-      ${weekly}
-      <div class="field"><span class="label">時長</span>
-        <div class="chips">
-          <button type="button" class="chip" data-action="mins" aria-pressed="${!custom}">60 分</button>
-          <button type="button" class="chip" data-action="mins-custom" aria-pressed="${custom}">自訂</button>
-        </div>
-        ${custom ? `<div class="inline-add"><input class="input" id="mins" type="number" min="5" max="600" step="5" data-bind="mins" value="${draft.mins}" inputmode="numeric"><span style="align-self:center">分鐘</span></div>` : ""}
-        <div class="end-hint" id="end-hint">${end ? `到 ${end} 結束` : ""}</div>
-      </div>
+      ${seriesNote}${statusNote}${groupSeg}${category}${who}${repeat}${pay}${when}
+      ${lessonNotes}
       <div class="field">
         <div class="switch-row" style="margin:0">
           <span id="note-label">備註</span>
@@ -652,6 +795,14 @@ async function persist(e, message) {
   }
 }
 
+// 行程的時間範圍文字：當天的寫幾點到幾點；跨日或整天的寫日期
+function timeRange(e) {
+  const last = e.allDay ? addDays(e.end, -1) : e.end;
+  if (e.allDay) return sameDay(e.start, last) ? `${md(e.start)} 整天` : `${md(e.start)}–${md(last)} 整天`;
+  if (!sameDay(e.start, e.end)) return `${md(e.start)} ${hhmm(e.start)}–${md(e.end)} ${hhmm(e.end)}`;
+  return `${hhmm(e.start)}–${hhmm(e.end)}`;
+}
+
 // 撞期確認：回傳 true 表示可以存
 async function confirmConflicts(candidates, ignore = () => false) {
   const others = allEvents().filter((e) => !ignore(e));
@@ -661,7 +812,7 @@ async function confirmConflicts(candidates, ignore = () => false) {
   }
   if (!hits.length) return true;
   const shown = hits.slice(0, 5).map(({ c, x }) =>
-    `<li><b>${candidates.length > 1 ? `${md(c.start)} ` : ""}${hhmm(x.start)}–${hhmm(x.end)}</b>${esc(eventSub(x))}：${esc(eventTitle(x))}</li>`).join("");
+    `<li><b>${candidates.length > 1 ? `${md(c.start)} ` : ""}${timeRange(x)}</b>${esc(eventSub(x))}：${esc(eventTitle(x))}</li>`).join("");
   const more = hits.length > 5 ? `<li>還有 ${hits.length - 5} 堂也撞到</li>` : "";
   const choice = await showDialog({
     title: "時間撞到了",
@@ -678,8 +829,10 @@ function validate() {
   else if (draft.kind === "studio" && !draft.studioId) draft.error = "請先選一間教室。";
   else if (draft.kind === "studio" && !draft.courseId) draft.error = "請選課程種類。";
   else if (draft.kind === "personal" && !draft.title.trim()) draft.error = "請輸入行程名稱。";
+  else if (draft.kind === "lesson" && draft.pay === "single" && (draft.price === "" || !(Number(draft.price) >= 0))) draft.error = "請輸入這堂的金額。";
   else if (!draft.date || !draft.time) draft.error = "請選日期和開始時間。";
-  else if (!(draft.mins >= 5)) draft.error = "時長至少 5 分鐘。";
+  else if (draft.kind !== "personal" && !(draft.mins >= 5)) draft.error = "時長至少 5 分鐘。";
+  else if (draft.kind === "personal" && !(draftTimes().end > draftTimes().start)) draft.error = "結束時間要晚於開始時間。";
   else if (draft.repeat === "weekly" && draft.endDate && draft.endDate < draft.date) draft.error = "結束日期不能早於第一堂。";
   if (draft.error) renderSheet();
   return !draft.error;
@@ -689,6 +842,7 @@ const seriesDef = () => ({
   kind: draft.kind, studentId: draft.kind === "lesson" ? draft.studentId : null,
   studioId: draft.kind === "studio" ? draft.studioId : null,
   courseId: draft.kind === "studio" ? draft.courseId : null,
+  singlePrice: draft.kind === "lesson" && draft.pay === "single" ? Number(draft.price) : null,
   title: draft.kind === "studio" ? courseName(draft.courseId) ?? "" : draft.title.trim(),
   startDate: draft.date, startTime: draft.time, durationMin: draft.mins,
 });
@@ -719,13 +873,17 @@ async function submitEvent() {
     start, end, status: draft.status, deduct: draft.deduct, note,
     seriesId: draft.seriesId ?? null, occurrenceDate: draft.occurrenceDate ?? null,
     attendance: draft.kind === "studio" && draft.attendance !== "" && draft.attendance != null ? Number(draft.attendance) : null,
+    singlePrice: draft.kind === "lesson" && draft.pay === "single" ? Number(draft.price) : null,
+    allDay: draft.kind === "personal" && !!draft.allDay,
+    lessonNotes: draft.lessonNotes ?? "",
   };
 
   // 修改固定課的某一堂：只動備註就不用問範圍
   if (draft.id && draft.seriesId) {
     const o = draft.original;
     const changed = o.date !== draft.date || o.time !== draft.time || o.mins !== draft.mins
-      || o.title !== draft.title || o.studentId !== draft.studentId || o.courseId !== draft.courseId;
+      || o.title !== draft.title || o.studentId !== draft.studentId || o.courseId !== draft.courseId
+      || o.price !== (draft.pay === "single" ? draft.price : null);
     if (changed) {
       const scope = await askScope("改");
       if (scope === "back") return;
@@ -734,7 +892,7 @@ async function submitEvent() {
   }
 
   if (candidate.status !== "cancelled") {
-    await ensureLoaded(addDays(startOfDay(start), -1), addDays(startOfDay(start), 2));
+    await ensureLoaded(addDays(startOfDay(start), -1), addDays(startOfDay(end), 2));
     if (!(await confirmConflicts([candidate]))) return;
   }
   await persist(candidate, draft.id ? "已儲存" : "已新增");
@@ -818,6 +976,21 @@ document.addEventListener("click", async (ev) => {
   if (!el) return;
   const a = el.dataset.action;
 
+  // 日期、時間選單
+  if (a === "open-picker") { openPicker(el); return; }
+  if (a === "close-picker") { picker = null; renderPicker(); return; }
+  if (a === "picker-month") { picker.month = new Date(picker.month.getFullYear(), picker.month.getMonth() + Number(el.dataset.dir), 1); renderPicker(); return; }
+  if (a === "pick-date") { setPicked(el.dataset.day); return; }
+  if (a === "pick-today") { setPicked(dayKey(new Date())); return; }
+  if (a === "pick-clear") { setPicked(""); return; }
+  if (a === "pick-hour") { picker.hour = Number(el.dataset.v); renderPicker(); return; }
+  if (a === "pick-minute") { picker.minute = Number(el.dataset.v); renderPicker(); return; }
+  if (a === "pick-time-done") { setPicked(`${String(picker.hour).padStart(2, "0")}:${String(picker.minute).padStart(2, "0")}`); return; }
+  // 學生頁的上課筆記
+  if (a === "note-edit") { noteEditId = el.dataset.id; render(); document.getElementById("ln-text")?.focus(); return; }
+  if (a === "note-cancel") { noteEditId = null; render(); return; }
+  if (a === "note-save") { await saveLessonNote(); return; }
+
   if (a === "tab") { state.tab = el.dataset.tab; state.studentId = null; pkgForm = null; if (state.tab === "calendar") await loadCalendar(); render(); window.scrollTo(0, 0); }
   else if (a === "new") openSheet(null);
   else if (a === "open") openSheet(state.events.get(el.dataset.id));
@@ -838,7 +1011,7 @@ document.addEventListener("click", async (ev) => {
   else if (a === "demo-reset") { localStorage.removeItem("rona-demo-v3"); location.reload(); }
   else if (a === "remove-ref") await removeRef(el.dataset.type, el.dataset.id);
   else if (a === "open-student") { state.studentId = el.dataset.id; state.tab = "students"; pkgForm = null; render(); window.scrollTo(0, 0); }
-  else if (a === "back-students") { state.studentId = null; pkgForm = null; render(); }
+  else if (a === "back-students") { state.studentId = null; pkgForm = null; noteEditId = null; render(); }
   else if (a === "go-report") { state.tab = "report"; render(); window.scrollTo(0, 0); }
   else if (a === "report-move") {
     const m = state.reportMonth;
@@ -874,6 +1047,13 @@ document.addEventListener("click", async (ev) => {
   }
   // 抽屜裡的操作
   else if (!draft) return;
+  else if (a === "group") {
+    draft.group = el.dataset.group;
+    if (draft.group === "personal") { draft.kind = "personal"; draft.repeat = "once"; draft.studioId = null; draft.courseId = null; }
+    else { draft.kind = "lesson"; defaultPay(); }
+    draft.error = ""; draft.adding = null; renderSheet();
+  }
+  else if (a === "pay") { draft.pay = el.dataset.pay; pkgForm = null; renderSheet(); if (draft.pay === "single") document.getElementById("price")?.focus(); }
   else if (a === "kind") {
     draft.kind = el.dataset.kind;
     draft.studioId = draft.kind === "studio" ? el.dataset.studio : null;
@@ -882,7 +1062,7 @@ document.addEventListener("click", async (ev) => {
     if (draft.kind === "personal") draft.repeat = "once";
     draft.error = ""; renderSheet();
   }
-  else if (a === "pick-student") { draft.studentId = el.dataset.id; pkgForm = null; renderSheet(); }
+  else if (a === "pick-student") { draft.studentId = el.dataset.id; pkgForm = null; if (!draft.id) defaultPay(); renderSheet(); }
   else if (a === "pick-course") { draft.courseId = el.dataset.id; renderSheet(); }
   else if (a === "adding") { draft.adding = el.dataset.what; renderSheet(); document.getElementById("new-name")?.focus(); }
   else if (a === "add-student" || a === "add-studio" || a === "add-course") await addFromSheet(a.slice(4));
@@ -893,6 +1073,17 @@ document.addEventListener("click", async (ev) => {
   else if (a === "restore") await persist({ ...state.events.get(draft.id), status: "scheduled", deduct: true }, "已恢復這堂課");
   else if (a === "delete") await deleteEvent();
 });
+
+let noteEditId = null;
+async function saveLessonNote() {
+  const ev = state.events.get(noteEditId);
+  try {
+    const saved = await store.saveEvent({ ...ev, lessonNotes: document.getElementById("ln-text").value.trim() });
+    state.events.set(saved.id, saved);
+    noteEditId = null;
+    render(); toast("已儲存上課筆記");
+  } catch (e) { console.error(e); toast("沒有存成功，請檢查網路後再試"); }
+}
 
 async function savePackage(where) {
   const v = (id) => document.getElementById(id)?.value ?? "";
@@ -1073,17 +1264,12 @@ async function addFromSheet(what) {
   renderSheet();
 }
 
-document.addEventListener("click", (ev) => {
-  const el = ev.target;
-  if (el.matches?.('input[type="date"], input[type="time"]') && typeof el.showPicker === "function") {
-    try { el.showPicker(); } catch (_) {}
-  }
-});
-
 document.addEventListener("change", (ev) => {
   const el = ev.target;
   if (el.dataset.action === "toggle-personal") {
     state.showPersonal = el.checked; writePref("showPersonal", el.checked); render();
+  } else if (el.dataset.action === "allday-toggle" && draft) {
+    draft.allDay = el.checked; renderSheet();
   } else if (el.dataset.action === "note-toggle" && draft) {
     draft.noteOn = el.checked; renderSheet();
     if (el.checked) document.getElementById("note")?.focus();
@@ -1096,6 +1282,8 @@ document.addEventListener("input", (ev) => {
   const key = el.dataset.bind;
   draft[key] = key === "mins" ? Number(el.value) : el.value;
   if (key === "attendance") { const h = document.getElementById("fee-hint"); if (h) h.textContent = feeHint(); return; }
+  // 個人行程：開始日期改到結束日期之後，結束日期跟著移過去
+  if (key === "date" && draft.kind === "personal" && draft.endDay < draft.date) { draft.endDay = draft.date; renderSheet(); return; }
   try {
     document.getElementById("end-hint").textContent = `到 ${hhmm(draftTimes().end)} 結束`;
     const rh = document.getElementById("repeat-hint");
@@ -1105,6 +1293,7 @@ document.addEventListener("input", (ev) => {
 
 document.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && ev.target.id === "new-name") { ev.preventDefault(); addFromSheet(draft.adding); }
+  if (ev.key === "Escape" && picker) { picker = null; renderPicker(); return; }
   if (ev.key === "Escape" && !document.querySelector(".dialog")) { if (draft) closeSheet(); else if (studioSheetId) closeStudioSheet(); }
 });
 
@@ -1132,13 +1321,6 @@ document.addEventListener("submit", async (ev) => {
       state.students.push(st);
       render(); toast("已新增學生");
     } catch (e) { console.error(e); toast("沒有新增成功，請檢查網路後再試"); }
-  } else if (form.dataset.form === "per-price") {
-    const raw = form.price.value.trim();
-    try {
-      const st = await store.updateStudent(form.dataset.id, { perLessonPrice: raw === "" ? null : Number(raw) });
-      state.students[state.students.findIndex((x) => x.id === st.id)] = st;
-      render(); toast(raw === "" ? "已清除單堂價" : "已儲存單堂價");
-    } catch (e) { console.error(e); toast("沒有存成功，請檢查網路後再試"); }
   } else if (form.dataset.form === "event") {
     const btn = form.querySelector("button[type=submit]");
     btn.disabled = true;

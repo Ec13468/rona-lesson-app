@@ -71,8 +71,20 @@ export function findConflicts(candidate, events) {
     .sort((a, b) => a.start - b.start);
 }
 
+// 某天有哪些行程（跨日的行程，經過的每一天都算）
 export function eventsOnDay(events, day) {
-  return events.filter((e) => sameDay(e.start, day)).sort((a, b) => a.start - b.start);
+  const from = startOfDay(day), to = addDays(from, 1);
+  return events.filter((e) => e.start < to && (e.end > from || sameDay(e.start, day))).sort((a, b) => a.start - b.start);
+}
+
+// 跨日或整天的行程，在某一天要怎麼顯示時間
+export function spanLabel(e, day) {
+  const from = startOfDay(day), to = addDays(from, 1);
+  const startsToday = e.start >= from, endsToday = e.end <= to;
+  if (e.allDay || (!startsToday && !endsToday)) return { time: "整天", sub: null };
+  if (startsToday && endsToday) return null; // 一般的當天行程
+  if (startsToday) return { time: hhmm(e.start), sub: "開始" };
+  return { time: "到 " + hhmm(e.end), sub: "結束" };
 }
 
 // ---------- 固定每週的課 ----------
@@ -107,6 +119,7 @@ export function buildOccurrence(series, key) {
     studentId: series.kind === "lesson" ? series.studentId : null,
     studioId: series.kind === "studio" ? series.studioId : null,
     courseId: series.kind === "studio" ? series.courseId ?? null : null,
+    singlePrice: series.kind === "lesson" ? series.singlePrice ?? null : null,
     title: series.title ?? "",
     start,
     end: new Date(start.getTime() + series.durationMin * 60000),

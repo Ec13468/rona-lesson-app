@@ -17,6 +17,9 @@ const toEvent = (r) => ({
   seriesId: r.series_id ?? null,
   occurrenceDate: r.occurrence_date ?? null,
   attendance: r.attendance ?? null,
+  lessonNotes: r.lesson_notes ?? "",
+  singlePrice: r.single_price ?? null,
+  allDay: !!r.all_day,
 });
 
 const toRow = (e) => ({
@@ -33,6 +36,9 @@ const toRow = (e) => ({
   series_id: e.seriesId ?? null,
   occurrence_date: e.occurrenceDate ?? null,
   attendance: e.kind === "studio" ? e.attendance ?? null : null,
+  lesson_notes: e.lessonNotes ?? "",
+  single_price: e.kind === "lesson" ? e.singlePrice ?? null : null,
+  all_day: e.kind === "personal" ? !!e.allDay : false,
 });
 
 const toPerson = (r) => ({
@@ -76,6 +82,7 @@ const toSeries = (r) => ({
   studentId: r.student_id,
   studioId: r.studio_id,
   courseId: r.course_id ?? null,
+  singlePrice: r.single_price ?? null,
   title: r.title,
   startDate: r.start_date,
   startTime: String(r.start_time).slice(0, 5),
@@ -87,7 +94,7 @@ const toSeries = (r) => ({
 const seriesRow = (s) => {
   const row = {};
   const map = {
-    kind: "kind", studentId: "student_id", studioId: "studio_id", courseId: "course_id", title: "title", startDate: "start_date",
+    kind: "kind", studentId: "student_id", studioId: "studio_id", courseId: "course_id", singlePrice: "single_price", title: "title", startDate: "start_date",
     startTime: "start_time", durationMin: "duration_min", endDate: "end_date", generatedUntil: "generated_until",
   };
   for (const [k, col] of Object.entries(map)) if (k in s) row[col] = s[k];
@@ -239,7 +246,7 @@ function cloudStore() {
 
 // 展示版：附幾筆假資料，方便在電腦上把每個功能點一遍
 function demoStore() {
-  const KEY = "rona-demo-v4";
+  const KEY = "rona-demo-v5";
   const load = () => {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY));
@@ -255,7 +262,7 @@ function demoStore() {
     const at = (dayOffset, h, m = 0) => addDays(today, dayOffset).getTime() + (h * 60 + m) * 60000;
     const students = [
       { id: uid(), name: "王小美" },
-      { id: uid(), name: "陳怡君", per_lesson_price: 1000 },
+      { id: uid(), name: "陳怡君" },
       { id: uid(), name: "林佳穎" },
     ];
     const studios = [{ id: uid(), name: "52sYoga" }];
@@ -288,7 +295,9 @@ function demoStore() {
         ev("lesson", 2, "", at(0, 19), 60, "上次說右膝不舒服，避開跪姿"),
         ev("lesson", 0, "", at(1, 10), 60),
         ev("personal", null, "家庭聚餐", at(1, 18), 120),
-        ev("lesson", 1, "", at(3, 11), 90),
+        { ...ev("lesson", 1, "", at(3, 11), 90), single_price: 1000 },
+        { ...ev("lesson", 1, "", at(-6, 11), 60), single_price: 1000, lesson_notes: "第一次上課，柔軟度不錯，想加強核心" },
+        { ...ev("personal", null, "台南旅行", at(5, 9), 0), end_at: new Date(at(7, 18)).toISOString() },
         ev("lesson", 2, "", at(-2, 15), 60),
         ev("lesson", 0, "", at(-7, 10), 60),
         ev("studio", 0, "哈達瑜伽", at(-5, 11), 60),
