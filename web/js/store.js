@@ -31,6 +31,8 @@ const toRow = (e) => ({
   occurrence_date: e.occurrenceDate ?? null,
 });
 
+const toPerson = (r) => ({ id: r.id, name: r.name, hidden: !!r.archived_at });
+
 const toSeries = (r) => ({
   id: r.id,
   kind: r.kind,
@@ -85,16 +87,32 @@ function cloudStore() {
       await (await db()).auth.signOut();
     },
     async listStudents() {
-      return check(await (await t("students")).select("id, name").order("created_at"));
+      return check(await (await t("students")).select("id, name, archived_at").order("created_at")).map(toPerson);
     },
     async addStudent(name) {
-      return check(await (await t("students")).insert({ name }).select("id, name").single());
+      return toPerson(check(await (await t("students")).insert({ name }).select("id, name, archived_at").single()));
     },
     async listStudios() {
-      return check(await (await t("studios")).select("id, name").order("created_at"));
+      return check(await (await t("studios")).select("id, name, archived_at").order("created_at")).map(toPerson);
     },
     async addStudio(name) {
-      return check(await (await t("studios")).insert({ name }).select("id, name").single());
+      return toPerson(check(await (await t("studios")).insert({ name }).select("id, name, archived_at").single()));
+    },
+    // 刪除學生或教室：有課就只從清單隱藏（紀錄保留），沒有課就整個刪掉；回傳 "hidden" 或 "deleted"
+    async removeRef(type, id) {
+      const table = type === "student" ? "students" : "studios";
+      const col = type === "student" ? "student_id" : "studio_id";
+      const used = async (name) => {
+        const { count, error } = await (await t(name)).select("id", { count: "exact", head: true }).eq(col, id);
+        if (error) throw new Error(error.message);
+        return count;
+      };
+      if ((await used("events")) + (await used("event_series")) > 0) {
+        check(await (await t(table)).update({ archived_at: new Date().toISOString() }).eq("id", id));
+        return "hidden";
+      }
+      check(await (await t(table)).delete().eq("id", id));
+      return "deleted";
     },
     async listSeries() {
       return check(await (await t("event_series")).select("*").order("created_at")).map(toSeries);
@@ -200,10 +218,22 @@ function demoStore() {
     async currentUser() { return load().user; },
     async signIn(email) { return mutate((s) => (s.user = { email: email || "demo@localhost" })); },
     async signOut() { mutate((s) => { s.user = null; }); },
-    async listStudents() { return load().students; },
-    async addStudent(name) { return mutate((s) => { const x = { id: uid(), name }; s.students.push(x); return x; }); },
-    async listStudios() { return load().studios; },
-    async addStudio(name) { return mutate((s) => { const x = { id: uid(), name }; s.studios.push(x); return x; }); },
+    async listStudents() { return load().students.map(toPerson); },
+    async addStudent(name) { return mutate((s) => { const x = { id: uid(), name }; s.students.push(x); return toPerson(x); }); },
+    async listStudios() { return load().studios.map(toPerson); },
+    async addStudio(name) { return mutate((s) => { const x = { id: uid(), name }; s.studios.push(x); return toPerson(x); }); },
+    async removeRef(type, id) {
+      return mutate((s) => {
+        const list = type === "student" ? s.students : s.studios;
+        const col = type === "student" ? "student_id" : "studio_id";
+        if (s.events.some((e) => e[col] === id) || s.series.some((e) => e[col] === id)) {
+          list.find((x) => x.id === id).archived_at = new Date().toISOString();
+          return "hidden";
+        }
+        list.splice(list.findIndex((x) => x.id === id), 1);
+        return "deleted";
+      });
+    },
     async listSeries() { return load().series.map(toSeries); },
     async createSeries(x) {
       return mutate((s) => {

@@ -101,6 +101,8 @@ async function endSeriesFrom(series, fromKey) {
 }
 
 const allEvents = () => [...state.events.values()];
+const activeStudents = () => state.students.filter((s) => !s.hidden);
+const activeStudios = () => state.studios.filter((s) => !s.hidden);
 const studentName = (id) => state.students.find((s) => s.id === id)?.name ?? "（學生已刪除）";
 const studioName = (id) => state.studios.find((s) => s.id === id)?.name ?? "（教室已刪除）";
 const eventTitle = (e) => (e.kind === "lesson" ? studentName(e.studentId) : e.title || studioName(e.studioId));
@@ -222,12 +224,19 @@ function viewCalendar() {
 }
 
 function viewMe() {
+  const rows = (type, list, empty) => list.length
+    ? list.map((x) => `<div class="panel-row"><span>${esc(x.name)}</span>
+        <button class="row-del" data-action="remove-ref" data-type="${type}" data-id="${x.id}" aria-label="刪除 ${esc(x.name)}">刪除</button></div>`).join("")
+    : `<div class="panel-row"><span class="muted">${empty}</span></div>`;
   return `
     <h1 class="page-title">我的</h1>
+    <h2 class="section-title">學生（${activeStudents().length} 位）</h2>
+    <div class="panel">${rows("student", activeStudents(), "還沒有學生，新增一對一課時可以加入")}</div>
+    <h2 class="section-title">教室</h2>
+    <div class="panel">${rows("studio", activeStudios(), "還沒有教室，新增課程時可以加入")}</div>
+    <h2 class="section-title">帳號</h2>
     <div class="panel">
-      <div class="panel-row"><span>登入帳號</span><span>${esc(state.user.email)}</span></div>
-      <div class="panel-row"><span>學生人數</span><span>${state.students.length} 位</span></div>
-      <div class="panel-row"><span>教室</span><span>${state.studios.map((s) => esc(s.name)).join("、") || "還沒有"}</span></div>
+      <div class="panel-row"><span>登入帳號</span><span class="muted">${esc(state.user.email)}</span></div>
     </div>
     <button class="btn quiet" data-action="sign-out" style="margin-top:20px">登出</button>
     ${DEMO ? '<button class="btn danger" data-action="demo-reset">重設展示資料</button>' : ""}`;
@@ -264,7 +273,7 @@ function openSheet(existing) {
     if (sameDay(base, now)) start.setHours(Math.min(now.getHours() + 1, 21), 0, 0, 0);
     else start.setHours(10, 0, 0, 0);
     draft = {
-      id: null, kind: "lesson", studentId: state.students[0]?.id ?? null, studioId: null, title: "",
+      id: null, kind: "lesson", studentId: activeStudents()[0]?.id ?? null, studioId: null, title: "",
       date: dayKey(start), time: hhmm(start), mins: 60, status: "scheduled", deduct: true,
       note: "", noteOn: false, repeat: "once", endDate: "", seriesId: null,
     };
@@ -302,7 +311,7 @@ function renderSheet() {
     <div class="field"><span class="label">分類</span>
       <div class="chips">
         ${catChip("lesson", "一對一")}
-        ${state.studios.map((s) => catChip("studio", s.name, s.id)).join("")}
+        ${activeStudios().map((s) => catChip("studio", s.name, s.id)).join("")}
         ${catChip("personal", "個人行程")}
         ${draft.adding === "studio" ? "" : '<button type="button" class="chip add" data-action="adding" data-what="studio">＋ 新增教室</button>'}
       </div>
@@ -313,7 +322,7 @@ function renderSheet() {
   if (k === "lesson") {
     who = `<div class="field"><span class="label">學生</span>
       <div class="chips">
-        ${state.students.map((s) => `<button type="button" class="chip" data-action="pick-student" data-id="${s.id}" aria-pressed="${draft.studentId === s.id}">${esc(s.name)}</button>`).join("")}
+        ${activeStudents().map((s) => `<button type="button" class="chip" data-action="pick-student" data-id="${s.id}" aria-pressed="${draft.studentId === s.id}">${esc(s.name)}</button>`).join("")}
         ${draft.adding === "student" ? "" : '<button type="button" class="chip add" data-action="adding" data-what="student">＋ 新增學生</button>'}
       </div>
       ${draft.adding === "student" ? `<div class="inline-add"><input class="input" id="new-name" placeholder="學生名字" autocomplete="off"><button type="button" class="chip" data-action="add-student" aria-pressed="true">加入</button></div>` : ""}
@@ -545,23 +554,9 @@ async function changeSeriesFuture(note) {
   } catch (err) { console.error(err); failed("沒有存成功，請檢查網路後再按一次。"); }
 }
 
+// 取消只針對這一堂；固定課之後不上了請用刪除
 async function cancelEvent() {
   const ev = state.events.get(draft.id);
-  let scope = "one";
-  if (ev.seriesId) {
-    scope = await askScope("取消");
-    if (scope === "back") return;
-  }
-  if (scope === "future") {
-    try {
-      await store.cancelSeriesEventsFrom(ev.seriesId, ev.occurrenceDate);
-      const s = state.series.get(ev.seriesId);
-      if (s) state.series.set(s.id, await store.updateSeries(s.id, { endDate: s.generatedUntil }));
-      await reloadEvents();
-      closeSheet(); render(); toast("已取消這一堂和之後的課");
-    } catch (err) { console.error(err); failed("沒有取消成功，請檢查網路後再試。"); }
-    return;
-  }
   let deduct = false;
   if (ev.kind === "lesson") {
     const choice = await showDialog({
@@ -574,7 +569,7 @@ async function cancelEvent() {
     });
     if (choice === "back") return;
     deduct = choice === "deduct";
-  } else if (!ev.seriesId) {
+  } else {
     const choice = await showDialog({
       title: "取消這堂課？", text: `${describe(ev)}・${md(ev.start)} ${hhmm(ev.start)}`,
       buttons: [{ label: "取消這堂課", value: "ok" }, { label: "返回", value: "back", style: "quiet" }],
@@ -635,6 +630,7 @@ document.addEventListener("click", async (ev) => {
   else if (a === "pick-day") { state.cursor = parseDay(el.dataset.day); await loadCalendar(); render(); }
   else if (a === "sign-out") { await store.signOut(); state.user = null; render(); }
   else if (a === "demo-reset") { localStorage.removeItem("rona-demo-v2"); location.reload(); }
+  else if (a === "remove-ref") await removeRef(el.dataset.type, el.dataset.id);
   // 抽屜裡的操作
   else if (!draft) return;
   else if (a === "kind") {
@@ -653,6 +649,27 @@ document.addEventListener("click", async (ev) => {
   else if (a === "restore") await persist({ ...state.events.get(draft.id), status: "scheduled", deduct: true }, "已恢復這堂課");
   else if (a === "delete") await deleteEvent();
 });
+
+async function removeRef(type, id) {
+  const list = type === "student" ? state.students : state.studios;
+  const item = list.find((x) => x.id === id);
+  const label = type === "student" ? "學生" : "教室";
+  const choice = await showDialog({
+    title: `刪除${label}「${item.name}」？`,
+    text: `刪除後新增課程時就不會出現。已經排好的課和過去的紀錄都會保留；如果之後的課不上了，請到日曆刪除那些課。`,
+    buttons: [{ label: "刪除", value: "ok", style: "danger-fill" }, { label: "返回", value: "back", style: "quiet" }],
+  });
+  if (choice !== "ok") return;
+  try {
+    const result = await store.removeRef(type, id);
+    if (result === "hidden") item.hidden = true;
+    else list.splice(list.indexOf(item), 1);
+    render(); toast(`已刪除${label}`);
+  } catch (err) {
+    console.error(err);
+    toast("沒有刪除成功，請檢查網路後再試");
+  }
+}
 
 async function addFromSheet(what) {
   const input = document.getElementById("new-name");

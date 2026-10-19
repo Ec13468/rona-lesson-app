@@ -261,3 +261,7 @@ button { cursor: pointer; }
 .btn.danger-fill { background: var(--alert); color: #fff; }
 .note-input { margin-top: 10px; resize: vertical; min-height: 76px; line-height: 1.5; }
 .type-seg button[aria-pressed="true"] { color: var(--ink); }
+.section-title { font-size: 15px; font-weight: 600; color: var(--muted); margin: 22px 0 8px; }
+.page-title + .section-title { margin-top: 0; }
+.muted { color: var(--muted); }
+.row-del { border: 0; background: none; color: var(--alert); font-size: 15px; padding: 4px 0 4px 12px; }
