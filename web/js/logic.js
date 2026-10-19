@@ -75,6 +75,59 @@ export function eventsOnDay(events, day) {
   return events.filter((e) => sameDay(e.start, day)).sort((a, b) => a.start - b.start);
 }
 
+// ---------- 固定每週的課 ----------
+// 固定課格式：{ id, kind, studentId, studioId, title, startDate: "YYYY-MM-DD", startTime: "HH:MM", durationMin, endDate, generatedUntil }
+
+// 預先排好未來多久的課
+export const SERIES_HORIZON_DAYS = 182;
+
+export function parseDay(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// 從 fromKey 到 toKey（含頭尾）之間，這個固定課該上課的日期
+export function occurrenceDates(series, fromKey, toKey) {
+  const last = series.endDate && series.endDate < toKey ? series.endDate : toKey;
+  const out = [];
+  for (let d = parseDay(series.startDate); dayKey(d) <= last; d = addDays(d, 7)) {
+    const k = dayKey(d);
+    if (k >= fromKey) out.push(k);
+  }
+  return out;
+}
+
+export function buildOccurrence(series, key) {
+  const [hh, mm] = series.startTime.split(":").map(Number);
+  const start = parseDay(key);
+  start.setHours(hh, mm, 0, 0);
+  return {
+    id: null,
+    kind: series.kind,
+    studentId: series.kind === "lesson" ? series.studentId : null,
+    studioId: series.kind === "studio" ? series.studioId : null,
+    title: series.title ?? "",
+    start,
+    end: new Date(start.getTime() + series.durationMin * 60000),
+    status: "scheduled",
+    deduct: true,
+    note: "",
+    seriesId: series.id,
+    occurrenceDate: key,
+  };
+}
+
+// 還沒排出來、需要補上的每一堂（只補 generatedUntil 之後，刪掉的單堂不會再長回來）
+export function pendingOccurrences(series, untilKey) {
+  const from = series.generatedUntil ? dayKey(addDays(parseDay(series.generatedUntil), 1)) : series.startDate;
+  if (from > untilKey) return [];
+  return occurrenceDates(series, from, untilKey).map((k) => buildOccurrence(series, k));
+}
+
+export function dayBefore(key) {
+  return dayKey(addDays(parseDay(key), -1));
+}
+
 const isClass = (e) => e.kind === "lesson" || e.kind === "studio";
 
 // 首頁：今天還沒結束的行程

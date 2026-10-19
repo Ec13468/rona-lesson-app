@@ -95,3 +95,40 @@ test("某天的行程依時間排序", () => {
   const list = eventsOnDay([ev("b", "lesson", at(15), at(16)), ev("a", "lesson", at(9), at(10))], at(0));
   assert.deepEqual(list.map((x) => x.id), ["a", "b"]);
 });
+
+import { occurrenceDates, pendingOccurrences, buildOccurrence, dayBefore } from "../web/js/logic.js";
+
+const weekly = (extra = {}) => ({
+  id: "s1", kind: "studio", studioId: "st", studentId: null, title: "哈達瑜伽",
+  startDate: "2026-10-21", startTime: "11:00", durationMin: 60, endDate: null, generatedUntil: null, ...extra,
+});
+
+test("固定課：每週同一天", () => {
+  assert.deepEqual(occurrenceDates(weekly(), "2026-10-01", "2026-11-11"),
+    ["2026-10-21", "2026-10-28", "2026-11-04", "2026-11-11"]);
+});
+
+test("固定課：有結束日就停在結束日", () => {
+  assert.deepEqual(occurrenceDates(weekly({ endDate: "2026-11-04" }), "2026-10-01", "2026-12-31"),
+    ["2026-10-21", "2026-10-28", "2026-11-04"]);
+});
+
+test("固定課：只補還沒排出來的", () => {
+  const list = pendingOccurrences(weekly({ generatedUntil: "2026-10-28" }), "2026-11-11");
+  assert.deepEqual(list.map((e) => e.occurrenceDate), ["2026-11-04", "2026-11-11"]);
+  assert.equal(pendingOccurrences(weekly({ generatedUntil: "2026-11-11" }), "2026-11-11").length, 0);
+});
+
+test("固定課：每一堂的時間、時長、類型", () => {
+  const e = buildOccurrence(weekly({ durationMin: 75 }), "2026-10-28");
+  assert.equal(e.start.getDay(), 3);
+  assert.equal(e.start.getHours(), 11);
+  assert.equal((e.end - e.start) / 60000, 75);
+  assert.equal(e.studioId, "st");
+  assert.equal(e.studentId, null);
+  assert.equal(e.note, "");
+});
+
+test("前一天（跨月）", () => {
+  assert.equal(dayBefore("2026-11-01"), "2026-10-31");
+});

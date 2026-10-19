@@ -248,3 +248,16 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* 第 1.5 階段：教室分類、備註與固定課圖示 */
+.marks { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: -2px; color: var(--muted); }
+.mini { display: inline-block; flex: none; }
+.legend-icon { display: inline-flex; align-items: center; gap: 4px; }
+.legend-icon .mini { width: 13px; height: 13px; }
+.state-note .mini { vertical-align: -2px; margin-right: 2px; }
+.chip.cat-studio[aria-pressed="true"] { border-color: var(--studio); background: var(--studio-soft); color: var(--studio); }
+.chip.cat-personal[aria-pressed="true"] { border-color: var(--personal); background: var(--personal-soft); color: var(--personal); }
+.btn.studio { background: var(--studio); }
+.btn.danger-fill { background: var(--alert); color: #fff; }
+.note-input { margin-top: 10px; resize: vertical; min-height: 76px; line-height: 1.5; }
+.type-seg button[aria-pressed="true"] { color: var(--ink); }
