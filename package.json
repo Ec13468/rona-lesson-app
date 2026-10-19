@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test tests/logic.test.mjs tests/billing.test.mjs"
   },
   "keywords": [],
   "author": "",
