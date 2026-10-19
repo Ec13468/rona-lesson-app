@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { studentSummary, studioFee, studioStatement, consumes } from "../web/js/billing.js";
+import { studentSummary, studioFee, studioStatement, consumes, lessonIncomeStatement, addMonthsKey } from "../web/js/billing.js";
 
 const now = new Date(2026, 9, 19, 12, 0);
 const at = (day, h = 10) => new Date(2026, 9, day, h);
@@ -102,16 +102,17 @@ test("鐘點費：每堂固定金額", () => {
 });
 
 test("教室對帳：已上完、預估、取消不算、沒填人數先算底薪", () => {
-  const studio = { id: "S", baseFee: 800, bonusAfter: 6, bonusPer: 50 };
-  const ev = (day, extra = {}) => ({ id: "s" + ++n, kind: "studio", studioId: "S", start: at(day), end: at(day, 11), status: "scheduled", ...extra });
-  const st = studioStatement(studio, [
+  const studio = { id: "S" };
+  const general = { baseFee: 800, bonusAfter: 6, bonusPer: 50 };
+  const ev = (day, extra = {}) => ({ id: "s" + ++n, kind: "studio", studioId: "S", courseId: "G", start: at(day), end: at(day, 11), status: "scheduled", ...extra });
+  const st = studioStatement(studio, () => general, [
     ev(7, { attendance: 10 }),               // 1000
     ev(14),                                  // 沒填人數 800
     ev(15, { status: "cancelled" }),         // 不算
     ev(21, { attendance: 9 }),               // 未來：預估用底薪 800
     ev(28),                                  // 未來 800
     { ...ev(8), studioId: "OTHER" },         // 別間教室
-  ], new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  ].map((e) => e), new Date(2026, 9, 1), new Date(2026, 10, 1), now);
   assert.equal(st.confirmed, 1800);
   assert.equal(st.estimate, 1600);
   assert.equal(st.total, 3400);
@@ -121,4 +122,42 @@ test("教室對帳：已上完、預估、取消不算、沒填人數先算底�
 
 test("只有一對一課會扣堂", () => {
   assert.equal(consumes({ kind: "studio", status: "scheduled", end: at(1) }, now), false);
+});
+
+test("同一間教室不同課程種類：鐘點費各算各的", () => {
+  const courses = { G: { baseFee: 800, bonusAfter: 6, bonusPer: 50 }, A: { baseFee: 800, bonusAfter: 3, bonusPer: 50 } };
+  const ev = (day, courseId, attendance) => ({ id: "c" + ++n, kind: "studio", studioId: "Y", courseId, start: at(day), end: at(day, 11), status: "scheduled", attendance });
+  const st = studioStatement({ id: "Y" }, (id) => courses[id], [ev(6, "G", 7), ev(8, "A", 6)], new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  assert.deepEqual(st.rows.map((r) => r.fee), [850, 950]);
+  assert.equal(st.confirmed, 1800);
+});
+
+test("一對一認列：這個月上了 4 堂就認列 4 堂的錢，還沒上的另外預估", () => {
+  const ls = [lesson(2), lesson(9), lesson(14), lesson(16), lesson(23), lesson(30), lesson(40)];
+  const r = lessonIncomeStatement([A], () => [pkg()], ls, new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  assert.equal(r.rows[0].doneCount, 4);
+  assert.equal(r.rows[0].doneAmount, 3200);
+  assert.equal(r.rows[0].futureCount, 2);
+  assert.equal(r.rows[0].futureAmount, 1600);
+  assert.equal(r.total, 4800);
+});
+
+test("一對一認列：上個月上的課不算這個月；方案不夠的堂數標成沒付費", () => {
+  const ls = [lesson(-20), lesson(5), lesson(6)]; // 第一堂在 9 月
+  const r = lessonIncomeStatement([A], () => [pkg({ lessons: 2, price: 1600 })], ls, new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  assert.equal(r.rows[0].doneCount, 2);
+  assert.equal(r.rows[0].doneAmount, 800);
+  assert.equal(r.rows[0].unpaid, 1);
+});
+
+test("一對一認列：單堂價學生", () => {
+  const r = lessonIncomeStatement([{ id: "A", perLessonPrice: 1000 }], () => [], [lesson(5), lesson(25)], new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  assert.equal(r.confirmed, 1000);
+  assert.equal(r.estimate, 1000);
+});
+
+test("到期日：X 個月後，月底自動調整", () => {
+  assert.equal(addMonthsKey("2026-10-19", 4), "2027-02-19");
+  assert.equal(addMonthsKey("2026-10-31", 4), "2027-02-28");
+  assert.equal(addMonthsKey("2026-01-31", 1), "2026-02-28");
 });

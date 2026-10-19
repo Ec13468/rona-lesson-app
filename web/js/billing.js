@@ -10,35 +10,37 @@ export function consumes(e, now) {
   return isFinished(e, now);
 }
 
-// 學生的扣堂與收入
-// student：{ id, perLessonPrice }，packages：[{ id, lessons, price, purchasedOn, expiresOn, createdAt }]
-export function studentSummary(student, packages, events, now) {
-  const mine = events.filter((e) => e.kind === "lesson" && e.studentId === student.id);
-  const consumed = mine.filter((e) => consumes(e, now)).sort((a, b) => a.start - b.start);
-  const booked = mine.filter((e) => e.status === "scheduled" && !isFinished(e, now)).sort((a, b) => a.start - b.start);
-
+// 依序把每堂課分配給方案（先扣最早買的）→ 單堂價 → 沒付費
+function allocate(student, packages, lessons) {
   const pk = [...packages]
     .sort((a, b) => a.purchasedOn.localeCompare(b.purchasedOn) || String(a.createdAt).localeCompare(String(b.createdAt)))
     .map((p) => ({ ...p, used: 0, value: p.price / p.lessons }));
   const single = student.perLessonPrice ?? null;
-
-  let income = 0;
-  let unpaid = 0;
   const history = [];
-  for (const e of consumed) {
+  for (const e of [...lessons].sort((a, b) => a.start - b.start)) {
     const p = pk.find((x) => x.used < x.lessons);
     if (p) {
       p.used++;
-      income += p.value;
       history.push({ event: e, source: "package", packageId: p.id, amount: p.value });
     } else if (single !== null) {
-      income += single;
       history.push({ event: e, source: "single", amount: single });
     } else {
-      unpaid++;
       history.push({ event: e, source: "unpaid", amount: 0 });
     }
   }
+  return { pk, history };
+}
+
+// 學生的扣堂與收入
+// student：{ id, perLessonPrice }，packages：[{ id, lessons, price, purchasedOn, expiresOn, createdAt }]
+export function studentSummary(student, packages, events, now) {
+  const mine = events.filter((e) => e.kind === "lesson" && e.studentId === student.id);
+  const consumed = mine.filter((e) => consumes(e, now));
+  const booked = mine.filter((e) => e.status === "scheduled" && !isFinished(e, now));
+  const { pk, history } = allocate(student, packages, consumed);
+  const single = student.perLessonPrice ?? null;
+  const unpaid = history.filter((h) => h.source === "unpaid").length;
+  const income = history.reduce((n, h) => n + h.amount, 0);
 
   const remaining = pk.reduce((n, p) => n + (p.lessons - p.used), 0);
   const today = dayKey(startOfDay(now));
@@ -69,28 +71,64 @@ export function studentSummary(student, packages, events, now) {
     paid: packages.reduce((n, p) => n + p.price, 0),
     unpaid,
     packages: pk.map((p) => ({ ...p, left: p.lessons - p.used })),
-    history,
+    history: history.sort((a, b) => a.event.start - b.event.start),
     alerts,
   };
 }
 
-// 教室鐘點費：底薪＋超過 N 人後每多 1 人加 X 元；沒填人數先算底薪
-export function studioFee(studio, attendance) {
-  const base = studio.baseFee ?? 0;
-  if (attendance == null) return base;
-  return base + Math.max(0, attendance - (studio.bonusAfter ?? 0)) * (studio.bonusPer ?? 0);
+// 一對一的當月認列收入：上完（或取消且扣堂）的課認列；還沒上的課照同樣規則預估
+export function lessonIncomeStatement(students, packagesOf, events, from, to, now) {
+  const rows = [];
+  for (const st of students) {
+    const mine = events.filter((e) => e.kind === "lesson" && e.studentId === st.id);
+    // 分配時把月底前已預約的課也排進去，才算得出預估
+    const counted = mine.filter((e) => consumes(e, now) || (e.status === "scheduled" && !isFinished(e, now) && e.start < to));
+    const { history } = allocate(st, packagesOf(st.id), counted);
+    const inMonth = history.filter((h) => h.event.start >= from && h.event.start < to);
+    if (!inMonth.length) continue;
+    const done = inMonth.filter((h) => consumes(h.event, now));
+    const future = inMonth.filter((h) => !consumes(h.event, now));
+    rows.push({
+      student: st,
+      doneCount: done.length,
+      doneAmount: done.reduce((n, h) => n + h.amount, 0),
+      futureCount: future.length,
+      futureAmount: future.reduce((n, h) => n + h.amount, 0),
+      unpaid: inMonth.filter((h) => h.source === "unpaid").length,
+    });
+  }
+  const confirmed = rows.reduce((n, r) => n + r.doneAmount, 0);
+  const estimate = rows.reduce((n, r) => n + r.futureAmount, 0);
+  return { rows, confirmed: Math.round(confirmed), estimate: Math.round(estimate), total: Math.round(confirmed + estimate) };
 }
 
-// 某間教室某段期間的對帳明細
-export function studioStatement(studio, events, from, to, now) {
+// 鐘點費（跟著課程種類）：底薪＋超過 N 人後每多 1 人加 X 元；沒填人數先算底薪
+export function studioFee(course, attendance) {
+  const base = course?.baseFee ?? 0;
+  if (attendance == null) return base;
+  return base + Math.max(0, attendance - (course?.bonusAfter ?? 0)) * (course?.bonusPer ?? 0);
+}
+
+// 某間教室某段期間的對帳明細；courseOf(id) 找課程種類
+export function studioStatement(studio, courseOf, events, from, to, now) {
   const rows = events
     .filter((e) => e.kind === "studio" && e.studioId === studio.id && e.status !== "cancelled" && e.start >= from && e.start < to)
     .sort((a, b) => a.start - b.start)
     .map((e) => {
       const past = isFinished(e, now);
-      return { event: e, past, fee: studioFee(studio, past ? e.attendance : null), missing: past && e.attendance == null };
+      const course = courseOf(e.courseId);
+      return { event: e, course, past, fee: studioFee(course, past ? e.attendance : null), missing: past && e.attendance == null };
     });
   const confirmed = rows.filter((r) => r.past).reduce((n, r) => n + r.fee, 0);
   const estimate = rows.filter((r) => !r.past).reduce((n, r) => n + r.fee, 0);
   return { rows, confirmed, estimate, total: confirmed + estimate, missing: rows.filter((r) => r.missing).length };
+}
+
+// 方案到期日：X 個月後（同一天；遇到月底就取那個月最後一天）
+export function addMonthsKey(key, months) {
+  const d = parseDay(key);
+  const target = new Date(d.getFullYear(), d.getMonth() + months, 1);
+  const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d.getDate(), last));
+  return dayKey(target);
 }

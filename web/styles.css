@@ -319,3 +319,21 @@ button { cursor: pointer; }
 .rep-row.is-missing span:nth-child(2) { color: var(--alert); font-weight: 600; }
 .rep-row.is-future { color: var(--faint); }
 .stats b small { font-size: 12px; font-weight: 400; margin-left: 2px; color: var(--muted); }
+
+/* 方案到期日三選一、編輯方案、課程種類、報表總計 */
+.exp-seg { grid-template-columns: repeat(3, 1fr); margin-bottom: 10px; }
+.pkg-form .exp-months, .pkg-form .exp-date { display: none; margin-top: 0; }
+.pkg-form[data-exp="months"] .exp-months, .pkg-form[data-exp="date"] .exp-date { display: flex; }
+.pkg-form h3 { margin: 0 0 10px; font-size: 16px; }
+.pkg-edit { padding: 8px 0; }
+.pkg-edit .pkg-form { margin-top: 0; }
+.pkg-row .pkg-left .muted { margin-left: 10px; }
+.panel-in-sheet { background: var(--paper); margin: 6px 0 4px; }
+.rep-total { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 4px; }
+.rep-total div { background: var(--surface); border-radius: 14px; padding: 10px; }
+.rep-total span { display: block; font-size: 12px; color: var(--muted); }
+.rep-total b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.rep-total .grand { background: var(--lesson); color: #fff; }
+.rep-total .grand span { color: rgba(255,255,255,.8); }
+.rep-row span small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+.rep-row span:last-child small { text-align: right; }

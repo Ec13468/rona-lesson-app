@@ -106,6 +106,7 @@ export function buildOccurrence(series, key) {
     kind: series.kind,
     studentId: series.kind === "lesson" ? series.studentId : null,
     studioId: series.kind === "studio" ? series.studioId : null,
+    courseId: series.kind === "studio" ? series.courseId ?? null : null,
     title: series.title ?? "",
     start,
     end: new Date(start.getTime() + series.durationMin * 60000),

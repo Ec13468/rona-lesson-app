@@ -7,6 +7,7 @@ const toEvent = (r) => ({
   kind: r.kind,
   studentId: r.student_id,
   studioId: r.studio_id ?? null,
+  courseId: r.course_id ?? null,
   title: r.title,
   start: new Date(r.start_at),
   end: new Date(r.end_at),
@@ -22,6 +23,7 @@ const toRow = (e) => ({
   kind: e.kind,
   student_id: e.kind === "lesson" ? e.studentId : null,
   studio_id: e.kind === "studio" ? e.studioId : null,
+  course_id: e.kind === "studio" ? e.courseId ?? null : null,
   title: e.title ?? "",
   start_at: e.start.toISOString(),
   end_at: e.end.toISOString(),
@@ -47,6 +49,19 @@ const personRow = (x) => {
   if ("bonusPer" in x) row.bonus_per = x.bonusPer;
   return row;
 };
+const toCourse = (r) => ({
+  id: r.id, studioId: r.studio_id, name: r.name, hidden: !!r.archived_at,
+  baseFee: r.base_fee ?? 0, bonusAfter: r.bonus_after ?? 0, bonusPer: r.bonus_per ?? 0,
+});
+const courseRow = (c) => {
+  const row = {};
+  if ("studioId" in c) row.studio_id = c.studioId;
+  if ("name" in c) row.name = c.name;
+  if ("baseFee" in c) row.base_fee = c.baseFee;
+  if ("bonusAfter" in c) row.bonus_after = c.bonusAfter;
+  if ("bonusPer" in c) row.bonus_per = c.bonusPer;
+  return row;
+};
 const toPackage = (r) => ({
   id: r.id, studentId: r.student_id, lessons: r.lessons, price: r.price,
   purchasedOn: r.purchased_on, expiresOn: r.expires_on, createdAt: r.created_at,
@@ -60,6 +75,7 @@ const toSeries = (r) => ({
   kind: r.kind,
   studentId: r.student_id,
   studioId: r.studio_id,
+  courseId: r.course_id ?? null,
   title: r.title,
   startDate: r.start_date,
   startTime: String(r.start_time).slice(0, 5),
@@ -71,7 +87,7 @@ const toSeries = (r) => ({
 const seriesRow = (s) => {
   const row = {};
   const map = {
-    kind: "kind", studentId: "student_id", studioId: "studio_id", title: "title", startDate: "start_date",
+    kind: "kind", studentId: "student_id", studioId: "studio_id", courseId: "course_id", title: "title", startDate: "start_date",
     startTime: "start_time", durationMin: "duration_min", endDate: "end_date", generatedUntil: "generated_until",
   };
   for (const [k, col] of Object.entries(map)) if (k in s) row[col] = s[k];
@@ -126,8 +142,32 @@ function cloudStore() {
     async updateStudio(id, patch) {
       return toPerson(check(await (await t("studios")).update(personRow(patch)).eq("id", id).select("*").single()));
     },
+    async listCourses() {
+      return check(await (await t("studio_courses")).select("*").order("created_at")).map(toCourse);
+    },
+    async addCourse(c) {
+      return toCourse(check(await (await t("studio_courses")).insert(courseRow(c)).select().single()));
+    },
+    async updateCourse(id, patch) {
+      return toCourse(check(await (await t("studio_courses")).update(courseRow(patch)).eq("id", id).select().single()));
+    },
+    // 有排過課就只隱藏，沒有就刪掉
+    async removeCourse(id) {
+      const { count, error } = await (await t("events")).select("id", { count: "exact", head: true }).eq("course_id", id);
+      if (error) throw new Error(error.message);
+      const { count: c2 } = await (await t("event_series")).select("id", { count: "exact", head: true }).eq("course_id", id);
+      if (count + (c2 ?? 0) > 0) {
+        check(await (await t("studio_courses")).update({ archived_at: new Date().toISOString() }).eq("id", id));
+        return "hidden";
+      }
+      check(await (await t("studio_courses")).delete().eq("id", id));
+      return "deleted";
+    },
     async listPackages() {
       return check(await (await t("packages")).select("*").order("purchased_on")).map(toPackage);
+    },
+    async updatePackage(id, p) {
+      return toPackage(check(await (await t("packages")).update(packageRow(p)).eq("id", id).select().single()));
     },
     async addPackage(p) {
       return toPackage(check(await (await t("packages")).insert(packageRow(p)).select().single()));
@@ -199,7 +239,7 @@ function cloudStore() {
 
 // 展示版：附幾筆假資料，方便在電腦上把每個功能點一遍
 function demoStore() {
-  const KEY = "rona-demo-v3";
+  const KEY = "rona-demo-v4";
   const load = () => {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY));
@@ -218,15 +258,17 @@ function demoStore() {
       { id: uid(), name: "陳怡君", per_lesson_price: 1000 },
       { id: uid(), name: "林佳穎" },
     ];
-    const studios = [
-      { id: uid(), name: "52sYoga", base_fee: 800, bonus_after: 6, bonus_per: 50 },
-      { id: uid(), name: "52sYoga 空中瑜伽", base_fee: 800, bonus_after: 3, bonus_per: 50 },
+    const studios = [{ id: uid(), name: "52sYoga" }];
+    const courses = [
+      { id: uid(), studio_id: studios[0].id, name: "一般課", base_fee: 800, bonus_after: 6, bonus_per: 50 },
+      { id: uid(), studio_id: studios[0].id, name: "空中瑜伽", base_fee: 800, bonus_after: 3, bonus_per: 50 },
     ];
     const ev = (kind, ref, title, s, mins, note = "") => ({
       id: uid(), kind,
       student_id: kind === "lesson" ? students[ref].id : null,
-      studio_id: kind === "studio" ? studios[ref].id : null,
-      title, start_at: new Date(s).toISOString(), end_at: new Date(s + mins * 60000).toISOString(),
+      studio_id: kind === "studio" ? studios[0].id : null,
+      course_id: kind === "studio" ? courses[ref].id : null,
+      title: kind === "studio" ? courses[ref].name : title, start_at: new Date(s).toISOString(), end_at: new Date(s + mins * 60000).toISOString(),
       status: "scheduled", deduct: true, note, series_id: null, occurrence_date: null,
     });
     const s = {
@@ -234,6 +276,7 @@ function demoStore() {
       students,
       studios,
       series: [],
+      courses,
       packages: [
         { id: uid(), student_id: students[0].id, lessons: 10, price: 8000, purchased_on: dayKey(addDays(today, -30)), expires_on: dayKey(addDays(today, 10)), created_at: "1" },
         { id: uid(), student_id: students[2].id, lessons: 2, price: 1800, purchased_on: dayKey(addDays(today, -20)), expires_on: null, created_at: "2" },
@@ -273,6 +316,26 @@ function demoStore() {
       return mutate((s) => { const x = s.studios.find((r) => r.id === id); Object.assign(x, personRow(patch)); return toPerson(x); });
     },
     async listPackages() { return (load().packages ?? []).map(toPackage); },
+    async updatePackage(id, p) {
+      return mutate((s) => { const x = s.packages.find((r) => r.id === id); Object.assign(x, packageRow(p)); return toPackage(x); });
+    },
+    async listCourses() { return (load().courses ?? []).map(toCourse); },
+    async addCourse(c) {
+      return mutate((s) => { const row = { ...courseRow(c), id: uid() }; (s.courses ??= []).push(row); return toCourse(row); });
+    },
+    async updateCourse(id, patch) {
+      return mutate((s) => { const x = s.courses.find((r) => r.id === id); Object.assign(x, courseRow(patch)); return toCourse(x); });
+    },
+    async removeCourse(id) {
+      return mutate((s) => {
+        if (s.events.some((e) => e.course_id === id) || s.series.some((e) => e.course_id === id)) {
+          s.courses.find((x) => x.id === id).archived_at = new Date().toISOString();
+          return "hidden";
+        }
+        s.courses = s.courses.filter((x) => x.id !== id);
+        return "deleted";
+      });
+    },
     async addPackage(p) {
       return mutate((s) => {
         const row = { ...packageRow(p), id: uid(), created_at: new Date().toISOString() };

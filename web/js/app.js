@@ -5,7 +5,7 @@ import {
   monthGrid, isFinished, findConflicts, eventsOnDay, todayView,
   SERIES_HORIZON_DAYS, parseDay, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
 } from "./logic.js";
-import { studentSummary, studioFee, studioStatement } from "./billing.js";
+import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey } from "./billing.js";
 
 // ---------- 狀態 ----------
 const state = {
@@ -18,6 +18,7 @@ const state = {
   series: new Map(),
   events: new Map(),
   packages: [],
+  courses: [],
   studentId: null, // 學生分頁正在看的學生
   reportMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   loaded: null, // { from, to }
@@ -112,7 +113,9 @@ const activeStudents = () => state.students.filter((s) => !s.hidden);
 const activeStudios = () => state.studios.filter((s) => !s.hidden);
 const studentName = (id) => state.students.find((s) => s.id === id)?.name ?? "（學生已刪除）";
 const studioName = (id) => state.studios.find((s) => s.id === id)?.name ?? "（教室已刪除）";
-const eventTitle = (e) => (e.kind === "lesson" ? studentName(e.studentId) : e.title || studioName(e.studioId));
+const courseName = (id) => state.courses.find((c) => c.id === id)?.name;
+const eventTitle = (e) => (e.kind === "lesson" ? studentName(e.studentId)
+  : e.kind === "studio" ? courseName(e.courseId) || e.title || studioName(e.studioId) : e.title);
 const eventSub = (e) => (e.kind === "studio" ? studioName(e.studioId) : KIND_NAME[e.kind]);
 const describe = (e) => `${e.kind === "studio" ? studioName(e.studioId) + " " : ""}${eventTitle(e)}`;
 const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
@@ -121,7 +124,9 @@ const mdKey = (k) => { const d = parseDay(k); return `${d.getFullYear()}/${d.get
 const findStudent = (id) => state.students.find((s) => s.id === id);
 const findStudio = (id) => state.studios.find((s) => s.id === id);
 const summaryOf = (student) => studentSummary(student, state.packages.filter((p) => p.studentId === student.id), allEvents(), new Date());
-const feeRule = (st) => st.bonusPer > 0 ? `底薪 ${st.baseFee}・第 ${st.bonusAfter + 1} 人起每人 +${st.bonusPer}` : `每堂 ${st.baseFee} 元`;
+const feeRule = (c) => c.bonusPer > 0 ? `底薪 ${c.baseFee}・第 ${c.bonusAfter + 1} 人起每人 +${c.bonusPer}` : `每堂 ${c.baseFee} 元`;
+const findCourse = (id) => state.courses.find((c) => c.id === id);
+const coursesOf = (studioId) => state.courses.filter((c) => c.studioId === studioId && !c.hidden);
 
 function rangeFor(mode, cursor) {
   if (mode === "day") return [startOfDay(cursor), addDays(startOfDay(cursor), 1)];
@@ -274,12 +279,12 @@ function viewStudents() {
 function viewStudentDetail(st) {
   const sm = summaryOf(st);
   const alerts = sm.alerts.map((a) => `<li class="${a.level}">${esc(a.text)}</li>`).join("");
-  const pk = sm.packages.slice().reverse().map((p) => `
-    <div class="panel-row pkg-row">
+  const pk = sm.packages.slice().reverse().map((p) => pkgForm && pkgForm.id === p.id ? `<div class="pkg-edit">${packageForm("page")}</div>` : `
+    <button class="panel-row pkg-row row-btn" data-action="package-edit" data-id="${p.id}">
       <span><b>${p.lessons} 堂・${money(p.price)}</b>
-        <small>${mdKey(p.purchasedOn)} 購買${p.expiresOn ? `・${mdKey(p.expiresOn)} 到期` : "・無期限"}</small></span>
-      <span class="pkg-left">剩 ${p.left} 堂<button class="row-del" data-action="delete-package" data-id="${p.id}">刪除</button></span>
-    </div>`).join("");
+        <small>${mdKey(p.purchasedOn)} 購買${p.expiresOn ? `・${mdKey(p.expiresOn)} 到期` : "・不設期限"}</small></span>
+      <span class="pkg-left">剩 ${p.left} 堂<span class="muted">編輯</span></span>
+    </button>`).join("");
   const src = { package: "扣方案", single: "單堂", unpaid: "沒有方案" };
   const hist = sm.history.slice().reverse().slice(0, 30).map((h) => `
     <div class="panel-row"><span>${md(h.event.start)} ${hhmm(h.event.start)}${h.event.status === "cancelled" ? '<span class="tag cancel">取消・扣堂</span>' : ""}</span>
@@ -296,7 +301,7 @@ function viewStudentDetail(st) {
     ${alerts ? `<ul class="alerts">${alerts}</ul>` : ""}
     <h2 class="section-title">方案</h2>
     <div class="panel">${pk || '<div class="panel-row"><span class="muted">還沒有方案</span></div>'}</div>
-    ${packageForm("page")}
+    ${pkgForm && pkgForm.id ? "" : packageForm("page")}
     <h2 class="section-title">單堂價</h2>
     <form class="inline-add" data-form="per-price" data-id="${st.id}">
       <input class="input" name="price" type="number" min="0" step="50" inputmode="numeric" value="${st.perLessonPrice ?? ""}" placeholder="沒有就留空" aria-label="單堂價">
@@ -308,21 +313,28 @@ function viewStudentDetail(st) {
     <button class="btn danger" data-action="remove-ref" data-type="student" data-id="${st.id}" style="margin-top:24px">刪除這位學生</button>`;
 }
 
-// 登記購買方案的表單（學生頁和排課畫面共用）
-let pkgFormOpen = false;
+// 登記／編輯方案的表單（學生頁和排課畫面共用）
+let pkgForm = null; // null＝收起；{ id: null }＝新增；{ id }＝編輯
 function packageForm(where) {
-  if (!pkgFormOpen) return `<button type="button" class="btn quiet" data-action="package-open">＋ 登記購買方案</button>`;
-  return `<div class="pkg-form">
+  if (!pkgForm) return `<button type="button" class="btn quiet" data-action="package-open">＋ 登記購買方案</button>`;
+  const p = pkgForm.id ? state.packages.find((x) => x.id === pkgForm.id) : null;
+  const mode = p ? (p.expiresOn ? "date" : "none") : "months";
+  const modeBtn = (m, label) => `<button type="button" data-action="pk-exp-mode" data-mode="${m}" aria-pressed="${mode === m}">${label}</button>`;
+  return `<div class="pkg-form" data-exp="${mode}">
+    ${p ? "<h3>編輯方案</h3>" : ""}
     <div class="row2">
-      <div class="field"><label for="pk-lessons">堂數</label><input class="input" id="pk-lessons" type="number" min="1" inputmode="numeric" value="10"></div>
-      <div class="field"><label for="pk-price">金額（元）</label><input class="input" id="pk-price" type="number" min="0" step="100" inputmode="numeric" placeholder="例如 8000"></div>
+      <div class="field"><label for="pk-lessons">堂數</label><input class="input" id="pk-lessons" type="number" min="1" inputmode="numeric" value="${p ? p.lessons : 10}"></div>
+      <div class="field"><label for="pk-price">金額（元）</label><input class="input" id="pk-price" type="number" min="0" step="100" inputmode="numeric" value="${p ? p.price : ""}" placeholder="例如 8000"></div>
     </div>
-    <div class="row2">
-      <div class="field"><label for="pk-date">購買日期</label><input class="input" id="pk-date" type="date" value="${dayKey(new Date())}"></div>
-      <div class="field"><label for="pk-exp">到期日（可不填）</label><input class="input" id="pk-exp" type="date"></div>
+    <div class="field"><label for="pk-date">購買日期</label><input class="input" id="pk-date" type="date" value="${p ? p.purchasedOn : dayKey(new Date())}"></div>
+    <div class="field"><span class="label">到期日</span>
+      <div class="seg exp-seg" role="group" aria-label="到期日">${modeBtn("months", "幾個月後")}${modeBtn("date", "指定日期")}${modeBtn("none", "不設期限")}</div>
+      <div class="exp-months inline-add"><input class="input" id="pk-months" type="number" min="1" max="60" inputmode="numeric" value="4" aria-label="幾個月後到期"><span style="align-self:center">個月後到期</span></div>
+      <div class="exp-date"><input class="input" id="pk-exp" type="date" value="${p?.expiresOn ?? ""}" aria-label="到期日"></div>
     </div>
     <p class="form-error" id="pk-error"></p>
-    <div class="btn-row"><button type="button" class="btn quiet" data-action="package-close">先不要</button><button type="button" class="btn" data-action="package-save" data-where="${where}">登記方案</button></div>
+    <div class="btn-row"><button type="button" class="btn quiet" data-action="package-close">${p ? "取消編輯" : "先不要"}</button><button type="button" class="btn" data-action="package-save" data-where="${where}">${p ? "儲存方案" : "登記方案"}</button></div>
+    ${p ? `<button type="button" class="btn danger" data-action="delete-package" data-id="${p.id}">刪除這個方案</button>` : ""}
   </div>`;
 }
 
@@ -330,18 +342,40 @@ function viewReport() {
   const m = state.reportMonth;
   const from = m, to = new Date(m.getFullYear(), m.getMonth() + 1, 1);
   const now = new Date();
-  const cards = state.studios.map((st) => {
-    const r = studioStatement(st, allEvents(), from, to, now);
+
+  const lessons = lessonIncomeStatement(state.students, (id) => state.packages.filter((p) => p.studentId === id), allEvents(), from, to, now);
+  const lessonRows = lessons.rows.map((r) => `
+    <button class="rep-row" data-action="open-student" data-id="${r.student.id}">
+      <span>${esc(r.student.name)}${r.unpaid ? `<small class="warn-text">${r.unpaid} 堂沒有方案</small>` : ""}</span>
+      <span>${r.doneCount} 堂${r.futureCount ? `<small>還有 ${r.futureCount} 堂</small>` : ""}</span>
+      <span>${money(r.doneAmount)}${r.futureCount ? `<small>＋${money(r.futureAmount)}</small>` : ""}</span>
+    </button>`).join("");
+  const lessonCard = `<section class="rep-card">
+    <h2>一對一</h2>
+    <p class="muted rule">上完一堂就認列一堂的錢；還沒上的課先列預估</p>
+    <div class="rep-sum">
+      <div><span>已上完</span><b>${money(lessons.confirmed)}</b></div>
+      <div><span>還沒上</span><b>${money(lessons.estimate)}</b></div>
+      <div><span>本月合計</span><b>${money(lessons.total)}</b></div>
+    </div>
+    ${lessonRows ? `<div class="rep-rows">${lessonRows}</div>` : '<p class="muted">這個月沒有一對一課。</p>'}
+  </section>`;
+
+  let confirmed = lessons.confirmed, estimate = lessons.estimate;
+  const studioCards = state.studios.map((st) => {
+    const r = studioStatement(st, findCourse, allEvents(), from, to, now);
     if (!r.rows.length && st.hidden) return "";
+    confirmed += r.confirmed; estimate += r.estimate;
     const rows = r.rows.map((x) => `
       <button class="rep-row ${x.missing ? "is-missing" : ""} ${x.past ? "" : "is-future"}" data-action="open" data-id="${x.event.id}">
-        <span>${md(x.event.start)} ${hhmm(x.event.start)}<small>${esc(x.event.title)}</small></span>
+        <span>${md(x.event.start)} ${hhmm(x.event.start)}<small>${esc(x.course?.name ?? x.event.title)}</small></span>
         <span>${x.past ? (x.missing ? "未填人數" : `${x.event.attendance} 人`) : "還沒上"}</span>
         <span>${money(x.fee)}</span>
       </button>`).join("");
+    const rules = state.courses.filter((c) => c.studioId === st.id && !c.hidden).map((c) => `${esc(c.name)}：${feeRule(c)}`).join("<br>");
     return `<section class="rep-card">
       <h2>${esc(st.name)}</h2>
-      <p class="muted rule">${feeRule(st)}</p>
+      <p class="muted rule">${rules}</p>
       <div class="rep-sum">
         <div><span>已上完</span><b>${money(r.confirmed)}</b></div>
         <div><span>還沒上</span><b>${money(r.estimate)}</b></div>
@@ -351,19 +385,25 @@ function viewReport() {
       ${rows ? `<div class="rep-rows">${rows}</div>` : '<p class="muted">這個月沒有課。</p>'}
     </section>`;
   }).join("");
+
   return `
     <h1 class="page-title">報表</h1>
     <div class="cal-nav">
       <button class="icon-btn" data-action="report-move" data-dir="-1" aria-label="上個月">${icons.prev}</button>
-      <span class="cal-title">${m.getFullYear()}年${m.getMonth() + 1}月 教室對帳</span>
+      <span class="cal-title">${m.getFullYear()}年${m.getMonth() + 1}月</span>
       <button class="icon-btn" data-action="report-move" data-dir="1" aria-label="下個月">${icons.next}</button>
     </div>
-    ${cards || '<div class="empty"><p>還沒有教室。</p></div>'}`;
+    <div class="rep-total">
+      <div><span>已上完</span><b>${money(confirmed)}</b></div>
+      <div><span>還沒上（預估）</span><b>${money(estimate)}</b></div>
+      <div class="grand"><span>本月合計</span><b>${money(confirmed + estimate)}</b></div>
+    </div>
+    ${lessonCard}${studioCards}`;
 }
 
 function viewMe() {
   const studios = activeStudios().map((x) => `<button class="panel-row row-btn" data-action="edit-studio" data-id="${x.id}">
-      <span>${esc(x.name)}<small>${feeRule(x)}</small></span><span class="muted">設定</span></button>`).join("");
+      <span>${esc(x.name)}<small>${coursesOf(x.id).map((c) => esc(c.name)).join("、") || "還沒有課程種類"}</small></span><span class="muted">設定</span></button>`).join("");
   return `
     <h1 class="page-title">我的</h1>
     <h2 class="section-title">教室與鐘點費</h2>
@@ -399,7 +439,7 @@ function openSheet(existing) {
       date: dayKey(existing.start), time: hhmm(existing.start), mins: minutesBetween(existing.start, existing.end),
       noteOn: !!existing.note, repeat: "once", endDate: "",
     };
-    draft.original = { date: draft.date, time: draft.time, mins: draft.mins, title: draft.title, studentId: draft.studentId };
+    draft.original = { date: draft.date, time: draft.time, mins: draft.mins, title: draft.title, studentId: draft.studentId, courseId: draft.courseId };
   } else {
     const now = new Date();
     const start = new Date(base);
@@ -407,13 +447,13 @@ function openSheet(existing) {
     if (sameDay(base, now)) start.setHours(Math.min(now.getHours() + 1, 21), 0, 0, 0);
     else start.setHours(10, 0, 0, 0);
     draft = {
-      id: null, kind: "lesson", studentId: activeStudents()[0]?.id ?? null, studioId: null, title: "",
+      id: null, kind: "lesson", studentId: activeStudents()[0]?.id ?? null, studioId: null, courseId: null, title: "",
       date: dayKey(start), time: hhmm(start), mins: 60, status: "scheduled", deduct: true,
       note: "", noteOn: false, repeat: "once", endDate: "", seriesId: null,
     };
   }
   draft.error = "";
-  draft.adding = null; // "student" | "studio"
+  draft.adding = null; // "student" | "studio" | "course"
   renderSheet();
 }
 
@@ -422,18 +462,18 @@ function billingLine(st) {
   const warn = sm.alerts.find((a) => a.level === "warn");
   const text = st.perLessonPrice != null && sm.remaining === 0 ? `單堂付費 ${money(st.perLessonPrice)}` : `方案剩 ${sm.remaining} 堂`;
   return `<div class="bill-line ${warn ? "is-warn" : ""}">${warn ? esc(warn.text) : text}</div>
-    ${warn || pkgFormOpen ? packageForm("sheet") : ""}`;
+    ${warn || pkgForm ? packageForm("sheet") : ""}`;
 }
 
 function feeHint() {
-  const st = findStudio(draft.studioId);
+  const c = findCourse(draft.courseId);
   const n = draft.attendance === "" || draft.attendance == null ? null : Number(draft.attendance);
-  return `這堂鐘點費 ${money(studioFee(st, n))}${n == null ? "（還沒填人數，先算底薪）" : ""}`;
+  return `這堂鐘點費 ${money(studioFee(c, n))}${n == null ? "（還沒填人數，先算底薪）" : ""}`;
 }
 
 function closeSheet() {
   draft = null;
-  pkgFormOpen = false;
+  pkgForm = null;
   $sheetRoot.innerHTML = "";
 }
 
@@ -477,15 +517,21 @@ function renderSheet() {
       ${draft.adding === "student" ? `<div class="inline-add"><input class="input" id="new-name" placeholder="學生名字" autocomplete="off"><button type="button" class="chip" data-action="add-student" aria-pressed="true">加入</button></div>` : ""}
       ${draft.studentId && findStudent(draft.studentId) ? billingLine(findStudent(draft.studentId)) : ""}
     </div>`;
-  } else {
-    const label = k === "studio" ? "課程名稱" : "名稱";
-    const ph = k === "studio" ? "例如：哈達瑜伽" : "例如：看牙醫";
-    who = `<div class="field"><label for="title">${label}</label><input class="input" id="title" data-bind="title" value="${esc(draft.title)}" placeholder="${ph}" autocomplete="off"></div>`;
-    if (k === "studio" && editing && findStudio(draft.studioId)) {
+  } else if (k === "studio") {
+    who = `<div class="field"><span class="label">課程種類</span>
+      <div class="chips">
+        ${coursesOf(draft.studioId).map((c) => `<button type="button" class="chip cat-studio" data-action="pick-course" data-id="${c.id}" aria-pressed="${draft.courseId === c.id}">${esc(c.name)}</button>`).join("")}
+        ${draft.adding === "course" ? "" : '<button type="button" class="chip add" data-action="adding" data-what="course">＋ 新增課程種類</button>'}
+      </div>
+      ${draft.adding === "course" ? `<div class="inline-add"><input class="input" id="new-name" placeholder="例如：空中瑜伽" autocomplete="off"><button type="button" class="chip" data-action="add-course" aria-pressed="true">加入</button></div><p class="hint">鐘點費之後到「我的」→ 教室 → 課程種類設定。</p>` : ""}
+    </div>`;
+    if (editing && findCourse(draft.courseId)) {
       who += `<div class="field"><label for="attendance">上課人數</label>
         <input class="input" id="attendance" type="number" min="0" inputmode="numeric" data-bind="attendance" value="${draft.attendance ?? ""}" placeholder="上完課後填">
         <div class="end-hint" id="fee-hint">${feeHint()}</div></div>`;
     }
+  } else {
+    who = `<div class="field"><label for="title">名稱</label><input class="input" id="title" data-bind="title" value="${esc(draft.title)}" placeholder="例如：看牙醫" autocomplete="off"></div>`;
   }
 
   const canRepeat = !editing && k !== "personal";
@@ -630,7 +676,7 @@ function validate() {
   draft.error = "";
   if (draft.kind === "lesson" && !draft.studentId) draft.error = "請先選一位學生。";
   else if (draft.kind === "studio" && !draft.studioId) draft.error = "請先選一間教室。";
-  else if (draft.kind === "studio" && !draft.title.trim()) draft.error = "請輸入課程名稱。";
+  else if (draft.kind === "studio" && !draft.courseId) draft.error = "請選課程種類。";
   else if (draft.kind === "personal" && !draft.title.trim()) draft.error = "請輸入行程名稱。";
   else if (!draft.date || !draft.time) draft.error = "請選日期和開始時間。";
   else if (!(draft.mins >= 5)) draft.error = "時長至少 5 分鐘。";
@@ -641,7 +687,9 @@ function validate() {
 
 const seriesDef = () => ({
   kind: draft.kind, studentId: draft.kind === "lesson" ? draft.studentId : null,
-  studioId: draft.kind === "studio" ? draft.studioId : null, title: draft.title.trim(),
+  studioId: draft.kind === "studio" ? draft.studioId : null,
+  courseId: draft.kind === "studio" ? draft.courseId : null,
+  title: draft.kind === "studio" ? courseName(draft.courseId) ?? "" : draft.title.trim(),
   startDate: draft.date, startTime: draft.time, durationMin: draft.mins,
 });
 
@@ -666,7 +714,8 @@ async function submitEvent() {
   }
 
   const candidate = {
-    id: draft.id, kind: draft.kind, studentId: draft.studentId, studioId: draft.studioId, title: draft.title.trim(),
+    id: draft.id, kind: draft.kind, studentId: draft.studentId, studioId: draft.studioId, courseId: draft.courseId ?? null,
+    title: draft.kind === "studio" ? courseName(draft.courseId) ?? "" : draft.title.trim(),
     start, end, status: draft.status, deduct: draft.deduct, note,
     seriesId: draft.seriesId ?? null, occurrenceDate: draft.occurrenceDate ?? null,
     attendance: draft.kind === "studio" && draft.attendance !== "" && draft.attendance != null ? Number(draft.attendance) : null,
@@ -676,7 +725,7 @@ async function submitEvent() {
   if (draft.id && draft.seriesId) {
     const o = draft.original;
     const changed = o.date !== draft.date || o.time !== draft.time || o.mins !== draft.mins
-      || o.title !== draft.title || o.studentId !== draft.studentId;
+      || o.title !== draft.title || o.studentId !== draft.studentId || o.courseId !== draft.courseId;
     if (changed) {
       const scope = await askScope("改");
       if (scope === "back") return;
@@ -769,7 +818,7 @@ document.addEventListener("click", async (ev) => {
   if (!el) return;
   const a = el.dataset.action;
 
-  if (a === "tab") { state.tab = el.dataset.tab; state.studentId = null; pkgFormOpen = false; if (state.tab === "calendar") await loadCalendar(); render(); window.scrollTo(0, 0); }
+  if (a === "tab") { state.tab = el.dataset.tab; state.studentId = null; pkgForm = null; if (state.tab === "calendar") await loadCalendar(); render(); window.scrollTo(0, 0); }
   else if (a === "new") openSheet(null);
   else if (a === "open") openSheet(state.events.get(el.dataset.id));
   else if (a === "close-sheet") closeSheet();
@@ -788,8 +837,8 @@ document.addEventListener("click", async (ev) => {
   else if (a === "sign-out") { await store.signOut(); state.user = null; render(); }
   else if (a === "demo-reset") { localStorage.removeItem("rona-demo-v3"); location.reload(); }
   else if (a === "remove-ref") await removeRef(el.dataset.type, el.dataset.id);
-  else if (a === "open-student") { state.studentId = el.dataset.id; state.tab = "students"; pkgFormOpen = false; render(); window.scrollTo(0, 0); }
-  else if (a === "back-students") { state.studentId = null; pkgFormOpen = false; render(); }
+  else if (a === "open-student") { state.studentId = el.dataset.id; state.tab = "students"; pkgForm = null; render(); window.scrollTo(0, 0); }
+  else if (a === "back-students") { state.studentId = null; pkgForm = null; render(); }
   else if (a === "go-report") { state.tab = "report"; render(); window.scrollTo(0, 0); }
   else if (a === "report-move") {
     const m = state.reportMonth;
@@ -798,8 +847,17 @@ document.addEventListener("click", async (ev) => {
     render();
   }
   else if (a === "edit-studio") openStudioSheet(el.dataset.id);
-  else if (a === "package-open") { pkgFormOpen = true; draft ? renderSheet() : render(); document.getElementById("pk-price")?.focus(); }
-  else if (a === "package-close") { pkgFormOpen = false; draft ? renderSheet() : render(); }
+  else if (a === "edit-course") openCourseSheet(el.dataset.id);
+  else if (a === "back-studio") openStudioSheet(studioSheetId);
+  else if (a === "remove-course") await removeCourse();
+  else if (a === "package-open") { pkgForm = { id: null }; draft ? renderSheet() : render(); document.getElementById("pk-price")?.focus(); }
+  else if (a === "package-edit") { pkgForm = { id: el.dataset.id }; render(); }
+  else if (a === "package-close") { pkgForm = null; draft ? renderSheet() : render(); }
+  else if (a === "pk-exp-mode") {
+    const form = el.closest(".pkg-form");
+    form.dataset.exp = el.dataset.mode;
+    form.querySelectorAll("[data-action=pk-exp-mode]").forEach((b) => b.setAttribute("aria-pressed", b === el));
+  }
   else if (a === "package-save") await savePackage(el.dataset.where);
   else if (a === "delete-package") {
     const choice = await showDialog({
@@ -810,6 +868,7 @@ document.addEventListener("click", async (ev) => {
     try {
       await store.deletePackage(el.dataset.id);
       state.packages = state.packages.filter((x) => x.id !== el.dataset.id);
+      pkgForm = null;
       render(); toast("已刪除方案");
     } catch (err) { console.error(err); toast("沒有刪除成功，請檢查網路後再試"); }
   }
@@ -818,12 +877,15 @@ document.addEventListener("click", async (ev) => {
   else if (a === "kind") {
     draft.kind = el.dataset.kind;
     draft.studioId = draft.kind === "studio" ? el.dataset.studio : null;
+    draft.courseId = draft.kind === "studio" ? coursesOf(draft.studioId)[0]?.id ?? null : null;
+    draft.adding = null;
     if (draft.kind === "personal") draft.repeat = "once";
     draft.error = ""; renderSheet();
   }
-  else if (a === "pick-student") { draft.studentId = el.dataset.id; renderSheet(); }
+  else if (a === "pick-student") { draft.studentId = el.dataset.id; pkgForm = null; renderSheet(); }
+  else if (a === "pick-course") { draft.courseId = el.dataset.id; renderSheet(); }
   else if (a === "adding") { draft.adding = el.dataset.what; renderSheet(); document.getElementById("new-name")?.focus(); }
-  else if (a === "add-student" || a === "add-studio") await addFromSheet(a === "add-student" ? "student" : "studio");
+  else if (a === "add-student" || a === "add-studio" || a === "add-course") await addFromSheet(a.slice(4));
   else if (a === "repeat") { draft.repeat = el.dataset.repeat; renderSheet(); }
   else if (a === "mins") { draft.mins = 60; renderSheet(); }
   else if (a === "mins-custom") { if (draft.mins === 60) draft.mins = 45; renderSheet(); document.getElementById("mins")?.focus(); }
@@ -836,54 +898,125 @@ async function savePackage(where) {
   const v = (id) => document.getElementById(id)?.value ?? "";
   const studentId = where === "sheet" ? draft?.studentId : state.studentId;
   const lessons = Number(v("pk-lessons")), price = Number(v("pk-price"));
+  const purchasedOn = v("pk-date") || dayKey(new Date());
+  const mode = document.querySelector(".pkg-form").dataset.exp;
   const err = document.getElementById("pk-error");
+  let expiresOn = null;
+  if (mode === "months") {
+    const months = Number(v("pk-months"));
+    if (!(months >= 1)) { err.textContent = "請填幾個月後到期。"; return; }
+    expiresOn = addMonthsKey(purchasedOn, months);
+  } else if (mode === "date") {
+    if (!v("pk-exp")) { err.textContent = "請選到期日。"; return; }
+    expiresOn = v("pk-exp");
+  }
   if (!(lessons >= 1)) { err.textContent = "請填堂數。"; return; }
   if (v("pk-price") === "" || !(price >= 0)) { err.textContent = "請填金額。"; return; }
-  if (v("pk-exp") && v("pk-exp") < v("pk-date")) { err.textContent = "到期日不能早於購買日期。"; return; }
+  if (expiresOn && expiresOn < purchasedOn) { err.textContent = "到期日不能早於購買日期。"; return; }
   try {
-    const pk = await store.addPackage({ studentId, lessons, price, purchasedOn: v("pk-date") || dayKey(new Date()), expiresOn: v("pk-exp") || null });
-    state.packages.push(pk);
-    pkgFormOpen = false;
+    const data = { studentId, lessons, price, purchasedOn, expiresOn };
+    if (pkgForm?.id) {
+      const pk = await store.updatePackage(pkgForm.id, data);
+      state.packages[state.packages.findIndex((x) => x.id === pk.id)] = pk;
+    } else {
+      state.packages.push(await store.addPackage(data));
+    }
+    const edited = !!pkgForm?.id;
+    pkgForm = null;
     draft ? renderSheet() : render();
-    toast("已登記方案");
-  } catch (e) { console.error(e); err.textContent = "沒有登記成功，請檢查網路後再試。"; }
+    toast(edited ? "已更新方案" : "已登記方案");
+  } catch (e) { console.error(e); err.textContent = "沒有存成功，請檢查網路後再試。"; }
 }
 
-// 教室鐘點費設定
+// 教室設定：名稱＋底下的課程種類（各自的鐘點費）
 let studioSheetId = null;
 function openStudioSheet(id) {
   studioSheetId = id;
   const st = findStudio(id);
+  const courses = coursesOf(id).map((c) => `<button type="button" class="panel-row row-btn" data-action="edit-course" data-id="${c.id}">
+      <span>${esc(c.name)}<small>${feeRule(c)}</small></span><span class="muted">設定</span></button>`).join("");
   $sheetRoot.innerHTML = `
     <div class="backdrop" data-action="close-studio"></div>
     <form class="sheet" data-form="studio" role="dialog" aria-modal="true" aria-label="教室設定">
       <div class="grip"></div>
       <h2>${esc(st.name)}</h2>
-      <div class="field"><label for="st-name">教室名稱</label><input class="input" id="st-name" value="${esc(st.name)}" autocomplete="off"></div>
-      <div class="field"><label for="st-base">底薪（每堂）</label><input class="input" id="st-base" type="number" min="0" step="50" inputmode="numeric" value="${st.baseFee}"></div>
-      <div class="row2">
-        <div class="field"><label for="st-after">超過幾人開始加</label><input class="input" id="st-after" type="number" min="0" inputmode="numeric" value="${st.bonusAfter}"></div>
-        <div class="field"><label for="st-per">每多 1 人加（元）</label><input class="input" id="st-per" type="number" min="0" step="10" inputmode="numeric" value="${st.bonusPer}"></div>
-      </div>
-      <p class="hint">每堂固定金額的教室，「每多 1 人加」填 0 就好。</p>
+      <div class="field"><label for="st-name">教室名稱</label>
+        <div class="inline-add" style="margin:0"><input class="input" id="st-name" value="${esc(st.name)}" autocomplete="off"><button class="chip" type="submit" aria-pressed="true">儲存</button></div></div>
+      <span class="label">課程種類與鐘點費</span>
+      <div class="panel panel-in-sheet">${courses || '<div class="panel-row"><span class="muted">還沒有課程種類</span></div>'}</div>
+      <button type="button" class="btn quiet" data-action="edit-course" data-id="">＋ 新增課程種類</button>
       <p class="form-error" id="st-error"></p>
-      <button class="btn studio" type="submit">儲存</button>
       <button type="button" class="btn danger" data-action="remove-ref" data-type="studio" data-id="${st.id}">刪除這間教室</button>
     </form>`;
 }
 function closeStudioSheet() { studioSheetId = null; $sheetRoot.innerHTML = ""; }
 
 async function saveStudio() {
-  const v = (id) => document.getElementById(id).value;
-  const name = v("st-name").trim();
-  const nums = [v("st-base"), v("st-after"), v("st-per")].map((x) => Number(x || 0));
+  const name = document.getElementById("st-name").value.trim();
   if (!name) { document.getElementById("st-error").textContent = "請填教室名稱。"; return; }
-  if (nums.some((x) => !(x >= 0))) { document.getElementById("st-error").textContent = "金額和人數不能是負數。"; return; }
   try {
-    const st = await store.updateStudio(studioSheetId, { name, baseFee: nums[0], bonusAfter: nums[1], bonusPer: nums[2] });
+    const st = await store.updateStudio(studioSheetId, { name });
     state.studios[state.studios.findIndex((x) => x.id === st.id)] = st;
-    closeStudioSheet(); render(); toast("已儲存教室設定");
+    closeStudioSheet(); render(); toast("已儲存教室名稱");
   } catch (e) { console.error(e); document.getElementById("st-error").textContent = "沒有存成功，請檢查網路後再試。"; }
+}
+
+// 課程種類設定（在教室設定裡面）
+let courseSheetId = null; // "" ＝新增
+function openCourseSheet(id) {
+  courseSheetId = id;
+  const c = id ? findCourse(id) : { name: "", baseFee: 0, bonusAfter: 0, bonusPer: 0 };
+  $sheetRoot.innerHTML = `
+    <div class="backdrop" data-action="back-studio"></div>
+    <form class="sheet" data-form="course" role="dialog" aria-modal="true" aria-label="課程種類">
+      <div class="grip"></div>
+      <button type="button" class="back-btn" data-action="back-studio">${icons.back}${esc(findStudio(studioSheetId).name)}</button>
+      <h2>${id ? "編輯課程種類" : "新增課程種類"}</h2>
+      <div class="field"><label for="co-name">名稱</label><input class="input" id="co-name" value="${esc(c.name)}" placeholder="例如：空中瑜伽" autocomplete="off"></div>
+      <div class="field"><label for="co-base">底薪（每堂）</label><input class="input" id="co-base" type="number" min="0" step="50" inputmode="numeric" value="${c.baseFee}"></div>
+      <div class="row2">
+        <div class="field"><label for="co-after">超過幾人開始加</label><input class="input" id="co-after" type="number" min="0" inputmode="numeric" value="${c.bonusAfter}"></div>
+        <div class="field"><label for="co-per">每多 1 人加（元）</label><input class="input" id="co-per" type="number" min="0" step="10" inputmode="numeric" value="${c.bonusPer}"></div>
+      </div>
+      <p class="hint">每堂固定金額的課，「每多 1 人加」填 0 就好。</p>
+      <p class="form-error" id="co-error"></p>
+      <button class="btn studio" type="submit">儲存</button>
+      ${id ? '<button type="button" class="btn danger" data-action="remove-course">刪除這個課程種類</button>' : ""}
+    </form>`;
+}
+
+async function saveCourse() {
+  const v = (id) => document.getElementById(id).value;
+  const name = v("co-name").trim();
+  const nums = [v("co-base"), v("co-after"), v("co-per")].map((x) => Number(x || 0));
+  const err = document.getElementById("co-error");
+  if (!name) { err.textContent = "請填名稱。"; return; }
+  if (nums.some((x) => !(x >= 0))) { err.textContent = "金額和人數不能是負數。"; return; }
+  const data = { name, baseFee: nums[0], bonusAfter: nums[1], bonusPer: nums[2] };
+  try {
+    if (courseSheetId) {
+      const c = await store.updateCourse(courseSheetId, data);
+      state.courses[state.courses.findIndex((x) => x.id === c.id)] = c;
+    } else {
+      state.courses.push(await store.addCourse({ ...data, studioId: studioSheetId }));
+    }
+    openStudioSheet(studioSheetId); render(); toast("已儲存課程種類");
+  } catch (e) { console.error(e); err.textContent = "沒有存成功，請檢查網路後再試。"; }
+}
+
+async function removeCourse() {
+  const c = findCourse(courseSheetId);
+  const choice = await showDialog({
+    title: `刪除課程種類「${c.name}」？`,
+    text: "刪除後排課時就不會出現。已經排好的課和過去的紀錄都會保留，鐘點費照原本的設定計算。",
+    buttons: [{ label: "刪除", value: "ok", style: "danger-fill" }, { label: "返回", value: "back", style: "quiet" }],
+  });
+  if (choice !== "ok") return;
+  try {
+    const result = await store.removeCourse(c.id);
+    if (result === "hidden") c.hidden = true; else state.courses.splice(state.courses.indexOf(c), 1);
+    openStudioSheet(studioSheetId); render(); toast("已刪除課程種類");
+  } catch (e) { console.error(e); toast("沒有刪除成功，請檢查網路後再試"); }
 }
 
 async function removeRef(type, id) {
@@ -918,11 +1051,19 @@ async function addFromSheet(what) {
       const st = await store.addStudent(name);
       state.students.push(st);
       draft.studentId = st.id;
-    } else {
+    } else if (what === "studio") {
+      // 新教室先附一個「一般課」，鐘點費之後再設定
       const st = await store.addStudio(name);
       state.studios.push(st);
+      const c = await store.addCourse({ studioId: st.id, name: "一般課" });
+      state.courses.push(c);
       draft.kind = "studio";
       draft.studioId = st.id;
+      draft.courseId = c.id;
+    } else {
+      const c = await store.addCourse({ studioId: draft.studioId, name });
+      state.courses.push(c);
+      draft.courseId = c.id;
     }
     draft.adding = null;
     draft.error = "";
@@ -931,6 +1072,13 @@ async function addFromSheet(what) {
   }
   renderSheet();
 }
+
+document.addEventListener("click", (ev) => {
+  const el = ev.target;
+  if (el.matches?.('input[type="date"], input[type="time"]') && typeof el.showPicker === "function") {
+    try { el.showPicker(); } catch (_) {}
+  }
+});
 
 document.addEventListener("change", (ev) => {
   const el = ev.target;
@@ -974,6 +1122,8 @@ document.addEventListener("submit", async (ev) => {
     }
   } else if (form.dataset.form === "studio") {
     await saveStudio();
+  } else if (form.dataset.form === "course") {
+    await saveCourse();
   } else if (form.dataset.form === "new-student") {
     const name = form.name.value.trim();
     if (!name) return form.name.focus();
@@ -1005,9 +1155,10 @@ async function loadCalendar() {
 
 async function boot() {
   $app.innerHTML = '<p class="loading">載入中…</p>';
-  const [students, studios, series, packages] = await Promise.all([
-    store.listStudents(), store.listStudios(), store.listSeries(), store.listPackages(),
+  const [students, studios, series, packages, courses] = await Promise.all([
+    store.listStudents(), store.listStudios(), store.listSeries(), store.listPackages(), store.listCourses(),
   ]);
+  state.courses = courses;
   state.packages = packages;
   state.students = students;
   state.studios = studios;
