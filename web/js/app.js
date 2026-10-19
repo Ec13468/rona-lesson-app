@@ -517,7 +517,7 @@ function draftTimes() {
   const at = (key, time) => { const d = parseDay(key); const [hh, mm] = time.split(":").map(Number); d.setHours(hh, mm, 0, 0); return d; };
   if (draft.kind === "personal") {
     if (draft.allDay) return { start: parseDay(draft.date), end: addDays(parseDay(draft.endDay), 1) };
-    return { start: at(draft.date, draft.time), end: at(draft.endDay, draft.endTime) };
+    return { start: at(draft.date, draft.time), end: at(draft.date, draft.endTime) };
   }
   const start = at(draft.date, draft.time);
   return { start, end: new Date(start.getTime() + draft.mins * 60000) };
@@ -574,15 +574,49 @@ function renderPicker() {
       <div class="btn-row">${picker.clearable ? '<button type="button" class="btn quiet" data-action="pick-clear">不設定</button>' : '<button type="button" class="btn quiet" data-action="pick-today">今天</button>'}<button type="button" class="btn quiet" data-action="close-picker">關閉</button></div>`;
   } else {
     const pad = (n) => String(n).padStart(2, "0");
-    const hours = Array.from({ length: 24 }, (_, h) => `<button type="button" data-action="pick-hour" data-v="${h}" aria-pressed="${h === picker.hour}">${pad(h)}</button>`).join("");
-    const mins = Array.from({ length: 12 }, (_, i) => i * 5).map((m) => `<button type="button" data-action="pick-minute" data-v="${m}" aria-pressed="${m === picker.minute}">${pad(m)}</button>`).join("");
+    const col = (name, values, current) => `<div class="wheel" data-col="${name}">
+      ${values.map((v) => `<button type="button" data-action="pick-${name}" data-v="${v}" aria-pressed="${v === current}">${pad(v)}</button>`).join("")}</div>`;
     body = `<div class="pk-time-now">${pad(picker.hour)}:${pad(picker.minute)}</div>
-      <span class="label">時</span><div class="pk-hours">${hours}</div>
-      <span class="label">分</span><div class="pk-mins">${mins}</div>
+      <div class="wheels">
+        <div class="wheel-wrap"><span class="label">時</span>${col("hour", Array.from({ length: 24 }, (_, h) => h), picker.hour)}</div>
+        <div class="wheel-colon">:</div>
+        <div class="wheel-wrap"><span class="label">分</span>${col("minute", Array.from({ length: 12 }, (_, i) => i * 5), picker.minute)}</div>
+      </div>
       <button type="button" class="btn" data-action="pick-time-done">完成</button>`;
   }
   root.innerHTML = `<div class="backdrop picker-backdrop" data-action="close-picker"></div>
     <div class="picker" role="dialog" aria-modal="true" aria-label="${picker.type === "date" ? "選日期" : "選時間"}">${body}</div>`;
+  if (picker.type === "time") setupWheels(root);
+}
+
+// 滾輪：滑動停下來就選中間那一格；點某一格也會轉到中間
+const WHEEL_ITEM = 44;
+function setupWheels(root) {
+  root.querySelectorAll(".wheel").forEach((wheel) => {
+    const key = wheel.dataset.col;
+    const items = [...wheel.children];
+    const current = items.findIndex((b) => b.getAttribute("aria-pressed") === "true");
+    wheel.scrollTop = Math.max(current, 0) * WHEEL_ITEM;
+    let timer;
+    wheel.addEventListener("scroll", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const i = Math.min(items.length - 1, Math.max(0, Math.round(wheel.scrollTop / WHEEL_ITEM)));
+        setWheel(key, Number(items[i].dataset.v), false);
+      }, 90);
+    });
+  });
+}
+
+function setWheel(key, value, scroll) {
+  if (!picker) return;
+  picker[key] = value;
+  const wheel = document.querySelector(`.wheel[data-col="${key}"]`);
+  const items = [...wheel.children];
+  items.forEach((b) => b.setAttribute("aria-pressed", Number(b.dataset.v) === value));
+  if (scroll) wheel.scrollTo({ top: items.findIndex((b) => Number(b.dataset.v) === value) * WHEEL_ITEM, behavior: "smooth" });
+  const pad = (n) => String(n).padStart(2, "0");
+  document.querySelector(".pk-time-now").textContent = `${pad(picker.hour)}:${pad(picker.minute)}`;
 }
 
 // 選好後寫回欄位，觸發 input 事件讓畫面上的提示跟著更新
@@ -674,14 +708,16 @@ function renderSheet() {
   const when = personal ? `
     <div class="field"><div class="switch-row" style="margin:0"><span id="allday-label">整天</span>
       <label class="switch"><input type="checkbox" data-action="allday-toggle" aria-labelledby="allday-label" ${draft.allDay ? "checked" : ""}><span></span></label></div></div>
-    <div class="${draft.allDay ? "" : "row2"}">
+    ${draft.allDay ? `
+    <div class="row2">
       <div class="field"><span class="label">開始日期</span>${pickField("date", "date", draft.date, { bind: "date" })}</div>
-      ${draft.allDay ? "" : `<div class="field"><span class="label">開始時間</span>${pickField("time", "time", draft.time, { bind: "time" })}</div>`}
-    </div>
-    <div class="${draft.allDay ? "" : "row2"}">
       <div class="field"><span class="label">結束日期</span>${pickField("end-day", "date", draft.endDay, { bind: "endDay" })}</div>
-      ${draft.allDay ? "" : `<div class="field"><span class="label">結束時間</span>${pickField("end-time", "time", draft.endTime, { bind: "endTime" })}</div>`}
     </div>` : `
+    <div class="field"><span class="label">日期</span>${pickField("date", "date", draft.date, { bind: "date" })}</div>
+    <div class="row2">
+      <div class="field"><span class="label">開始時間</span>${pickField("time", "time", draft.time, { bind: "time" })}</div>
+      <div class="field"><span class="label">結束時間</span>${pickField("end-time", "time", draft.endTime, { bind: "endTime" })}</div>
+    </div>`}` : `
     <div class="row2">
       <div class="field"><span class="label">${draft.repeat === "weekly" ? "第一堂日期" : "日期"}</span>${pickField("date", "date", draft.date, { bind: "date" })}</div>
       <div class="field"><span class="label">開始時間</span>${pickField("time", "time", draft.time, { bind: "time" })}</div>
@@ -983,8 +1019,8 @@ document.addEventListener("click", async (ev) => {
   if (a === "pick-date") { setPicked(el.dataset.day); return; }
   if (a === "pick-today") { setPicked(dayKey(new Date())); return; }
   if (a === "pick-clear") { setPicked(""); return; }
-  if (a === "pick-hour") { picker.hour = Number(el.dataset.v); renderPicker(); return; }
-  if (a === "pick-minute") { picker.minute = Number(el.dataset.v); renderPicker(); return; }
+  if (a === "pick-hour") { setWheel("hour", Number(el.dataset.v), true); return; }
+  if (a === "pick-minute") { setWheel("minute", Number(el.dataset.v), true); return; }
   if (a === "pick-time-done") { setPicked(`${String(picker.hour).padStart(2, "0")}:${String(picker.minute).padStart(2, "0")}`); return; }
   // 學生頁的上課筆記
   if (a === "note-edit") { noteEditId = el.dataset.id; render(); document.getElementById("ln-text")?.focus(); return; }
