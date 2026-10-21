@@ -83,7 +83,7 @@ async function sendDue() {
     const want = e.remind ?? typeOn;
     if (want) {
       const what = e.kind === "lesson" ? `一對一・${nameOf(students, e.student_id)}`
-        : e.kind === "studio" ? `${nameOf(studios, e.studio_id)}・${nameOf(courses, e.course_id) || e.title}`
+        : e.kind === "studio" ? `${nameOf(studios, e.studio_id)}・${e.title && e.title !== nameOf(courses, e.course_id) ? `${e.title}（${nameOf(courses, e.course_id)}）` : nameOf(courses, e.course_id) || e.title}`
         : e.title;
       const minutesLeft = Math.max(1, Math.round((start.getTime() - now.getTime()) / 60000));
       const body = `${hhmm(start)}–${hhmm(new Date(e.end_at))}（${lead(minutesLeft >= st.remind_minutes - 2 ? st.remind_minutes : minutesLeft)}開始）${e.note ? `\n備註：${e.note}` : ""}`;

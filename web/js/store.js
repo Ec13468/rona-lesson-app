@@ -305,7 +305,7 @@ function demoStore() {
     ];
     const studios = [{ id: uid(), name: "52sYoga" }];
     const courses = [
-      { id: uid(), studio_id: studios[0].id, name: "一般課", base_fee: 800, bonus_after: 6, bonus_per: 50 },
+      { id: uid(), studio_id: studios[0].id, name: "一般團課", base_fee: 800, bonus_after: 6, bonus_per: 50 },
       { id: uid(), studio_id: studios[0].id, name: "空中瑜伽", base_fee: 800, bonus_after: 3, bonus_per: 50 },
     ];
     const ev = (kind, ref, title, s, mins, note = "") => ({
