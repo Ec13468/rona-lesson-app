@@ -436,7 +436,7 @@ function packageForm(where) {
     ${p ? "<h3>編輯方案</h3>" : ""}
     <div class="row2">
       <div class="field"><label for="pk-lessons">堂數</label><input class="input" id="pk-lessons" type="number" min="1" inputmode="numeric" value="${p ? p.lessons : 10}"></div>
-      <div class="field"><label for="pk-price">金額（元）</label><input class="input" id="pk-price" type="number" min="0" step="100" inputmode="numeric" value="${p ? p.price : ""}" placeholder="例如 8000"></div>
+      <div class="field"><label for="pk-price">金額（元）</label><input class="input" id="pk-price" type="number" min="0" step="1" inputmode="numeric" value="${p ? p.price : ""}" placeholder="例如 8000"></div>
     </div>
     <div class="field"><span class="label">購買日期</span>${pickField("pk-date", "date", p ? p.purchasedOn : dayKey(new Date()))}</div>
     <div class="field"><span class="label">到期日</span>
@@ -537,7 +537,7 @@ function reminderPanel() {
       ${leads.map((m) => `<button type="button" class="chip" data-action="remind-lead" data-v="${m}" aria-pressed="${st.remindMinutes === m}">${leadLabel(m)}</button>`).join("")}
       <button type="button" class="chip" data-action="remind-lead-custom" aria-pressed="${custom}">自訂</button>
     </div>
-    ${custom ? `<form class="inline-add" data-form="remind-custom"><input class="input" name="mins" type="number" min="5" max="1440" step="5" inputmode="numeric" value="${st.remindMinutes}" aria-label="課前幾分鐘"><span style="align-self:center">分鐘前</span><button class="chip" type="submit" aria-pressed="true">儲存</button></form>` : ""}
+    ${custom ? `<form class="inline-add" data-form="remind-custom"><input class="input" name="mins" type="number" min="5" max="1440" step="1" inputmode="numeric" value="${st.remindMinutes}" aria-label="課前幾分鐘"><span style="align-self:center">分鐘前</span><button class="chip" type="submit" aria-pressed="true">儲存</button></form>` : ""}
     <span class="label" style="margin-top:14px">哪些行程要提醒</span>
     ${toggle("remindLesson", "一對一")}${toggle("remindStudio", "教室課")}${toggle("remindPersonal", "個人行程")}
     <p class="hint">每一堂課也可以在編輯畫面單獨打開或關掉提醒。</p>
@@ -682,7 +682,7 @@ function paySection(st) {
     </div>`;
   let body;
   if (draft.pay === "single") {
-    body = `<div class="inline-add" style="margin-top:0"><input class="input" id="price" type="number" min="0" step="50" inputmode="numeric" data-bind="price" value="${esc(draft.price)}" placeholder="這堂的金額" aria-label="單堂金額"><span style="align-self:center">元${draft.repeat === "weekly" ? "／每堂" : ""}</span></div>`;
+    body = `<div class="inline-add" style="margin-top:0"><input class="input" id="price" type="number" min="0" step="1" inputmode="numeric" data-bind="price" value="${esc(draft.price)}" placeholder="這堂的金額" aria-label="單堂金額"><span style="align-self:center">元${draft.repeat === "weekly" ? "／每堂" : ""}</span></div>`;
   } else if (sm.available > 0 || (draft.id && draft.singlePrice == null && sm.remaining > 0)) {
     body = `<div class="bill-line">方案還可以排 ${Math.max(sm.available, 0)} 堂（剩 ${sm.remaining} 堂）</div>`;
   } else {
@@ -931,7 +931,7 @@ function renderSheet() {
         <button type="button" class="chip" data-action="mins" aria-pressed="${!custom}">60 分</button>
         <button type="button" class="chip" data-action="mins-custom" aria-pressed="${custom}">自訂</button>
       </div>
-      ${custom ? `<div class="inline-add"><input class="input" id="mins" type="number" min="5" max="600" step="5" data-bind="mins" value="${draft.mins}" inputmode="numeric"><span style="align-self:center">分鐘</span></div>` : ""}
+      ${custom ? `<div class="inline-add"><input class="input" id="mins" type="number" min="5" max="600" step="1" data-bind="mins" value="${draft.mins}" inputmode="numeric"><span style="align-self:center">分鐘</span></div>` : ""}
       <div class="end-hint" id="end-hint">${end ? `到 ${end} 結束` : ""}</div>
     </div>`;
 
@@ -1476,7 +1476,12 @@ document.addEventListener("click", async (ev) => {
     if (draft.kind === "personal") draft.repeat = "once";
     draft.error = ""; renderSheet();
   }
-  else if (a === "pick-student") { draft.studentId = el.dataset.id; pkgForm = null; if (!draft.id) defaultPay(); renderSheet(); }
+  else if (a === "pick-student") {
+    draft.studentId = el.dataset.id; pkgForm = null;
+    // 新增的課，或把「待定」的 0 元課換成真正的學生時，付費方式改成這位學生的預設
+    if (!draft.id || (draft.pay === "single" && Number(draft.price) === 0)) defaultPay();
+    renderSheet();
+  }
   else if (a === "pick-course") { draft.courseId = el.dataset.id; renderSheet(); }
   else if (a === "manage") { draft.manage = draft.manage === el.dataset.what ? null : el.dataset.what; draft.adding = null; renderSheet(); }
   else if (a === "chip-del") {
@@ -1592,10 +1597,10 @@ function openCourseSheet(id) {
       <button type="button" class="back-btn" data-action="back-studio">${icons.back}${esc(findStudio(studioSheetId).name)}</button>
       <h2>${id ? "編輯課程種類" : "新增課程種類"}</h2>
       <div class="field"><label for="co-name">名稱</label><input class="input" id="co-name" value="${esc(c.name)}" placeholder="例如：空中瑜伽" autocomplete="off"></div>
-      <div class="field"><label for="co-base">底薪（每堂）</label><input class="input" id="co-base" type="number" min="0" step="50" inputmode="numeric" value="${c.baseFee}"></div>
+      <div class="field"><label for="co-base">底薪（每堂）</label><input class="input" id="co-base" type="number" min="0" step="1" inputmode="numeric" value="${c.baseFee}"></div>
       <div class="row2">
         <div class="field"><label for="co-after">超過幾人開始加</label><input class="input" id="co-after" type="number" min="0" inputmode="numeric" value="${c.bonusAfter}"></div>
-        <div class="field"><label for="co-per">每多 1 人加（元）</label><input class="input" id="co-per" type="number" min="0" step="10" inputmode="numeric" value="${c.bonusPer}"></div>
+        <div class="field"><label for="co-per">每多 1 人加（元）</label><input class="input" id="co-per" type="number" min="0" step="1" inputmode="numeric" value="${c.bonusPer}"></div>
       </div>
       <p class="hint">每堂固定金額的課，「每多 1 人加」填 0 就好。</p>
       <p class="form-error" id="co-error"></p>
