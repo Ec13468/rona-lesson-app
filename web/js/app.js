@@ -2017,7 +2017,24 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.user && !draft) render();
 });
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js", { updateViaCache: "none" });
+
+// 自動更新：打開或切回 APP 時，跟網站確認版本號，不一樣就重新載入成新版
+const MY_VERSION = new URL(import.meta.url).searchParams.get("v");
+async function checkForUpdate() {
+  if (!MY_VERSION || MY_VERSION === "dev" || draft) return;
+  try {
+    const html = await (await fetch(`./?check=${Date.now()}`, { cache: "no-store" })).text();
+    const latest = html.match(/app\.js\?v=([a-z0-9]+)/)?.[1];
+    if (!latest || latest === MY_VERSION) return;
+    // 每個新版本只自動重新載入一次，換一個網址載入，手機就不會拿記住的舊首頁
+    let tried = null;
+    try { tried = sessionStorage.getItem("rona-updated-to"); sessionStorage.setItem("rona-updated-to", latest); } catch (_) {}
+    if (tried !== latest) location.replace(`./?v=${latest}`);
+  } catch (_) {}
+}
+checkForUpdate();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
 
 (async () => {
   try {
