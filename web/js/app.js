@@ -409,7 +409,14 @@ function viewStudentDetail(st) {
   }).join("");
   return `
     <button class="back-btn" data-action="back-students">${icons.back}學生</button>
-    <h1 class="page-title">${esc(st.name)}</h1>
+    ${renamingStudent ? `
+    <form class="inline-add rename-form" data-form="rename-student" data-id="${st.id}">
+      <input class="input" name="name" value="${esc(st.name)}" autocomplete="off" aria-label="學生名字">
+      <button class="chip" type="submit" aria-pressed="true">儲存</button>
+      <button class="chip" type="button" data-action="rename-cancel">取消</button>
+    </form>` : `
+    <div class="title-row"><h1 class="page-title">${esc(st.name)}</h1>
+      <button class="text-btn" data-action="rename-student">改名</button></div>`}
     <div class="stats">
       <div><b>${sm.attended}</b><span>已上堂數</span></div>
       <div><b>${sm.remaining}</b><span>剩餘堂數</span></div>
@@ -1451,6 +1458,8 @@ document.addEventListener("click", async (ev) => {
   if (a === "pick-minute") { setWheel("minute", Number(el.dataset.v), true); return; }
   if (a === "pick-time-done") { setPicked(`${String(picker.hour).padStart(2, "0")}:${String(picker.minute).padStart(2, "0")}`); return; }
   // 學生頁的上課筆記
+  if (a === "rename-student") { renamingStudent = true; render(); document.querySelector(".rename-form input")?.select(); return; }
+  if (a === "rename-cancel") { renamingStudent = false; render(); return; }
   if (a === "note-edit") { noteEditId = el.dataset.id; render(); document.getElementById("ln-text")?.focus(); return; }
   if (a === "note-cancel") { noteEditId = null; render(); return; }
   if (a === "note-save") { await saveLessonNote(); return; }
@@ -1478,11 +1487,11 @@ document.addEventListener("click", async (ev) => {
   else if (a === "demo-reset") { localStorage.removeItem("rona-demo-v3"); location.reload(); }
   else if (a === "remove-ref") await removeRef(el.dataset.type, el.dataset.id);
   else if (a === "open-student") {
-    state.studentId = el.dataset.id; state.tab = "students"; pkgForm = null;
+    state.studentId = el.dataset.id; state.tab = "students"; pkgForm = null; renamingStudent = false;
     openLayer("student", () => { state.studentId = null; pkgForm = null; noteEditId = null; render(); });
     render(); window.scrollTo(0, 0);
   }
-  else if (a === "back-students") { closeLayer("student"); state.studentId = null; pkgForm = null; noteEditId = null; render(); }
+  else if (a === "back-students") { closeLayer("student"); renamingStudent = false; state.studentId = null; pkgForm = null; noteEditId = null; render(); }
   else if (a === "go-report") { state.tab = "report"; render(); window.scrollTo(0, 0); }
   else if (a === "report-move") {
     const m = state.reportMonth;
@@ -1582,6 +1591,7 @@ document.addEventListener("click", async (ev) => {
 });
 
 let noteEditId = null;
+let renamingStudent = false; // 學生頁是否正在改名
 async function saveLessonNote() {
   const ev = state.events.get(noteEditId);
   try {
@@ -1844,6 +1854,15 @@ document.addEventListener("submit", async (ev) => {
     await saveStudio();
   } else if (form.dataset.form === "course") {
     await saveCourse();
+  } else if (form.dataset.form === "rename-student") {
+    const name = form.name.value.trim();
+    if (!name) return form.name.focus();
+    try {
+      const st = await store.updateStudent(form.dataset.id, { name });
+      state.students[state.students.findIndex((x) => x.id === st.id)] = st;
+      renamingStudent = false;
+      render(); toast("已改名");
+    } catch (e) { console.error(e); toast("沒有改成功，請檢查網路後再試"); }
   } else if (form.dataset.form === "new-student") {
     const name = form.name.value.trim();
     if (!name) return form.name.focus();
