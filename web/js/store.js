@@ -70,6 +70,7 @@ const settingsRow = (x) => ({
 const toCourse = (r) => ({
   id: r.id, studioId: r.studio_id, name: r.name, hidden: !!r.archived_at,
   baseFee: r.base_fee ?? 0, bonusAfter: r.bonus_after ?? 0, bonusPer: r.bonus_per ?? 0,
+  feeMode: r.fee_mode ?? "bonus", tiers: Array.isArray(r.tiers) ? r.tiers : [],
 });
 const courseRow = (c) => {
   const row = {};
@@ -78,6 +79,8 @@ const courseRow = (c) => {
   if ("baseFee" in c) row.base_fee = c.baseFee;
   if ("bonusAfter" in c) row.bonus_after = c.bonusAfter;
   if ("bonusPer" in c) row.bonus_per = c.bonusPer;
+  if ("feeMode" in c) row.fee_mode = c.feeMode;
+  if ("tiers" in c) row.tiers = c.tiers;
   return row;
 };
 const toPackage = (r) => ({

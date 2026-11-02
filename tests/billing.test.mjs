@@ -147,7 +147,7 @@ test("一對一認列：上個月上的課不算這個月；方案不夠的堂�
   const r = lessonIncomeStatement([A], () => [pkg({ lessons: 2, price: 1600 })], ls, new Date(2026, 9, 1), new Date(2026, 10, 1), now);
   assert.equal(r.rows[0].doneCount, 2);
   assert.equal(r.rows[0].doneAmount, 800);
-  assert.equal(r.rows[0].unpaid, 1);
+  assert.equal(r.rows[0].unpaidDone, 1);
 });
 
 test("一對一認列：單堂付費的課", () => {
@@ -171,4 +171,67 @@ test("單堂付費的課不扣方案", () => {
 test("扣掉已預約（要扣方案的）後還能排幾堂", () => {
   const s = studentSummary(A, [pkg({ lessons: 3, price: 2400 })], [lesson(25), lesson(26, { singlePrice: 900 })], now);
   assert.equal(s.available, 2);
+});
+
+import { lessonUnits, lastLessonIds } from "../web/js/billing.js";
+
+const long = (day, mins, extra = {}) => lesson(day, { end: new Date(at(day).getTime() + mins * 60000), ...extra });
+
+test("1.5 小時的課扣 1.5 堂、收入也照 1.5 堂算", () => {
+  assert.equal(lessonUnits(long(15, 90)), 1.5);
+  const s = studentSummary(A, [pkg()], [long(14, 90), lesson(15)], now);
+  assert.equal(s.remaining, 7.5);
+  assert.equal(s.income, 800 * 2.5);
+});
+
+test("單堂付費照每小時金額 × 時數", () => {
+  const s = studentSummary(A, [], [long(14, 90, { singlePrice: 1000 }), lesson(15, { singlePrice: 1000 })], now);
+  assert.equal(s.income, 1500 + 1000);
+});
+
+test("一堂課可以跨兩個方案扣；不夠的部分算沒付費", () => {
+  const a = pkg({ lessons: 1, price: 1000, purchasedOn: "2026-09-01" });
+  const b = pkg({ lessons: 1, price: 800, purchasedOn: "2026-10-01" });
+  const s = studentSummary(A, [a, b], [long(14, 90), long(15, 90)], now);
+  assert.equal(s.income, 1000 + 0.5 * 800 + 0.5 * 800);
+  assert.equal(s.unpaid, 1);
+  assert.equal(s.remaining, 0);
+});
+
+test("最後一堂：扣完後方案剩不到 1 堂的那一堂（含已預約的課）", () => {
+  const ls = [lesson(14), lesson(21), lesson(28), lesson(35)];  // 前一堂上過，後三堂預約
+  const ids = lastLessonIds([A], () => [pkg({ lessons: 3, price: 2400 })], ls, now);
+  assert.deepEqual([...ids], [ls[2].id]);
+  // 單堂付費的課不算
+  const ids2 = lastLessonIds([A], () => [pkg({ lessons: 2, price: 1600 })], [lesson(14), lesson(21, { singlePrice: 500 }), lesson(28)], now);
+  assert.equal(ids2.size, 1);
+  // 沒有方案就不標
+  assert.equal(lastLessonIds([A], () => [], ls, now).size, 0);
+});
+
+test("登記新方案後，之前沒方案的課和之後的課都會自動扣", () => {
+  const ls = [lesson(14), lesson(15), lesson(25)];
+  const before = studentSummary(A, [pkg({ lessons: 1, price: 800, purchasedOn: "2026-10-01" })], ls, now);
+  assert.equal(before.unpaid, 1);
+  const after = studentSummary(A, [pkg({ lessons: 1, price: 800, purchasedOn: "2026-10-01" }), pkg({ lessons: 4, price: 3200, purchasedOn: "2026-10-16" })], ls, now);
+  assert.equal(after.unpaid, 0);
+  assert.equal(after.remaining, 3);
+  assert.equal(after.available, 2);
+});
+
+test("階梯式鐘點費：700 底薪、6 人 750、8 人 800", () => {
+  const c = { baseFee: 700, feeMode: "tier", tiers: [{ min: 8, fee: 800 }, { min: 6, fee: 750 }] };
+  assert.equal(studioFee(c, 5), 700);
+  assert.equal(studioFee(c, 6), 750);
+  assert.equal(studioFee(c, 7), 750);
+  assert.equal(studioFee(c, 8), 800);
+  assert.equal(studioFee(c, 12), 800);
+  assert.equal(studioFee(c, null), 700);
+});
+
+test("一對一認列：還沒上但方案不夠的，標出從哪一堂開始不夠", () => {
+  const ls = [lesson(2), lesson(9), lesson(16), lesson(23), lesson(30)];
+  const r = lessonIncomeStatement([A], () => [pkg({ lessons: 4, price: 5400 })], ls, new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  assert.equal(r.rows[0].unpaidDone, 0);
+  assert.equal(r.rows[0].shortFrom.getDate(), 30);
 });

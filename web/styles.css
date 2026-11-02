@@ -482,3 +482,27 @@ html, body { overscroll-behavior-y: none; }
 .title-row .page-title { margin-bottom: 20px; }
 .rename-form { margin: 12px 0 20px; }
 .rename-form .input { font-size: 20px; font-weight: 600; }
+
+/* 最後一堂 */
+.item { grid-template-columns: 58px 4px 1fr auto; align-items: center; }
+.last-badge {
+  display: inline-block; background: var(--alert); color: #fff; font-size: 12px; font-weight: 700;
+  padding: 4px 8px; border-radius: 6px; white-space: nowrap; letter-spacing: .02em; align-self: center;
+}
+.action-sheet h2 .last-badge { margin-left: 10px; vertical-align: 4px; font-family: var(--body); }
+
+/* 點課程後的小選單 */
+.action-sheet h2 { margin-bottom: 4px; }
+.act-sub { color: var(--muted); margin: 0 0 14px; font-variant-numeric: tabular-nums; }
+.action-sheet .btn-row { margin-top: 14px; }
+.action-sheet .btn { margin-top: 0; }
+.act-att { margin-top: 6px; }
+
+/* 鐘點費兩種算法 */
+.fee-seg { grid-template-columns: 1fr 1fr; margin-bottom: 0; }
+form[data-form=course] .mode-tier, form[data-form=course] .mode-bonus { display: none; }
+form[data-form=course][data-mode=tier] .mode-tier, form[data-form=course][data-mode=bonus] .mode-bonus { display: block; }
+.tier-row { display: grid; grid-template-columns: 1fr auto 1fr auto 36px; gap: 8px; align-items: center; margin-bottom: 8px; color: var(--muted); font-size: 14px; }
+.tier-row .input { padding: 9px 10px; text-align: center; }
+.tier-del { border: 0; background: none; color: var(--alert); font-size: 22px; line-height: 1; }
+.mode-tier .label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
