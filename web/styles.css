@@ -461,3 +461,20 @@ html, body { overscroll-behavior-y: none; }
 /* 提示訊息裡的「復原」 */
 #toast.has-action.show { pointer-events: auto; display: flex; align-items: center; gap: 14px; white-space: normal; max-width: calc(100vw - 32px); }
 #toast button { border: 0; background: none; color: #9fe3c6; font-weight: 700; font-size: 15px; padding: 2px 0; }
+
+/* 報表：今天的課、直接輸入人數、完整查看 */
+.rep-sub { font-size: 14px; color: var(--muted); font-weight: 600; margin: 12px 0 0; }
+.rep-row { cursor: default; }
+.rep-open { border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; font-variant-numeric: tabular-nums; }
+.att { display: inline-flex; align-items: center; gap: 4px; }
+.att-input { width: 64px; padding: 6px 8px; text-align: center; font-size: 16px; }
+.rep-row.is-missing .att-input { border-color: var(--alert); background: var(--alert-soft); }
+.rep-more { display: flex; justify-content: flex-end; margin-top: 6px; }
+.rep-more .text-btn { padding: 6px 0; }
+.rep-full .rep-row { padding: 12px 0; }
+
+/* 我的：選單 */
+.menu-row { padding: 16px 0; }
+.menu-row small { margin-top: 2px; }
+.chev { color: var(--faint); font-size: 22px; line-height: 1; }
+.rep-row .rep-open small { text-align: left; }
