@@ -336,7 +336,7 @@ function viewCalendar() {
       <button class="icon-btn" data-action="cal-move" data-dir="1" aria-label="下一個">${icons.next}</button>
     </div>
     ${mode === "week" ? `<p class="week-total">這週授課 <b>${hoursText(weekMinutes(all, c))}</b></p>` : ""}
-    ${mode !== "day" ? '<p class="hint drag-hint">按住課程不放，可以拖到別天</p>' : ""}
+    ${mode !== "day" ? '<p class="hint drag-hint">按住課程不放，拖到別天放開，可以選擇移動或複製</p>' : ""}
     <div class="legend"><span><i style="background:${LESSON_COLOR}"></i>一對一</span>${activeStudios().map((st) => `<span><i style="background:${studioColor(st.id)}"></i>${esc(st.name)}</span>`).join("")}<span><i style="background:${PERSONAL_COLOR}"></i>個人行程</span><span class="legend-icon">${icons.note}備註</span></div>
     ${body}`;
 }
@@ -1206,11 +1206,24 @@ document.addEventListener("click", (ev) => { if (suppressClick) { ev.stopPropaga
 document.addEventListener("contextmenu", (ev) => { if (ev.target.closest(".screen .item")) ev.preventDefault(); });
 
 // 移到別天：時間不變；固定課只改這一堂；可以復原
+// 放開後先問：移動（原本那堂搬過去）或複製（原本那堂留著，在新日期多一堂）
 async function moveEventToDay(id, key) {
   const ev = state.events.get(id);
   if (!ev) return;
   const days = Math.round((parseDay(key) - startOfDay(ev.start)) / 86400000);
   if (!days) return;
+  const target = parseDay(key);
+  const choice = await showDialog({
+    title: `放到 ${md(target)}（週${WEEKDAYS[target.getDay()]}）${hhmm(ev.start)}`,
+    text: `${describe(ev)}・原本 ${md(ev.start)}（週${WEEKDAYS[ev.start.getDay()]}）`,
+    buttons: [
+      { label: "移動", value: "move" },
+      { label: "複製", value: "copy", style: "quiet" },
+      { label: "取消", value: "back", style: "danger" },
+    ],
+  });
+  if (choice === "copy") return copyEventToDay(ev, days);
+  if (choice !== "move") return;
   const moved = { ...ev, start: addDays(ev.start, days), end: addDays(ev.end, days) };
   await ensureLoaded(addDays(startOfDay(moved.start), -1), addDays(startOfDay(moved.end), 2));
   if (moved.status !== "cancelled" && !(await confirmConflicts([moved]))) return;
@@ -1224,6 +1237,27 @@ async function moveEventToDay(id, key) {
       render(); toast("已復原");
     });
   } catch (err) { console.error(err); toast("沒有移動成功，請檢查網路後再試"); }
+}
+
+// 複製一堂到別天：新的那堂是單堂課（不屬於固定課），人數、上課筆記不帶過去，備註和付費方式照舊
+async function copyEventToDay(ev, days) {
+  const copy = {
+    ...ev, id: null, start: addDays(ev.start, days), end: addDays(ev.end, days),
+    status: "scheduled", deduct: true, seriesId: null, occurrenceDate: null,
+    attendance: null, lessonNotes: "", remind: ev.remind ?? null,
+  };
+  await ensureLoaded(addDays(startOfDay(copy.start), -1), addDays(startOfDay(copy.end), 2));
+  if (!(await confirmConflicts([copy]))) return;
+  try {
+    const saved = await store.saveEvent(copy);
+    state.events.set(saved.id, saved);
+    render();
+    toast(`已複製到 ${md(saved.start)}（週${WEEKDAYS[saved.start.getDay()]}）`, async () => {
+      await store.deleteEvent(saved.id);
+      state.events.delete(saved.id);
+      render(); toast("已復原");
+    });
+  } catch (err) { console.error(err); toast("沒有複製成功，請檢查網路後再試"); }
 }
 
 function failed(message) {
