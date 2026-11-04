@@ -66,9 +66,15 @@ test("剩 1 堂：快用完", () => {
   assert.ok(s.alerts.some((a) => /只剩 1 堂/.test(a.text)));
 });
 
-test("預約的課比剩餘堂數多：提醒", () => {
-  const s = studentSummary(A, [pkg({ lessons: 2, price: 1600 })], [lesson(20), lesson(21), lesson(22)], now);
-  assert.ok(s.alerts.some((a) => a.text === "已預約 3 堂，但方案只剩 2 堂"));
+test("預約的課比剩餘堂數多：不另外提醒，改成預估最後一堂", () => {
+  const ls = [lesson(20), lesson(21), lesson(22)];
+  const s = studentSummary(A, [pkg({ lessons: 2, price: 1600 })], ls, now);
+  assert.ok(!s.alerts.some((a) => /已預約/.test(a.text)));
+  const f = packageForecast("A", [pkg({ lessons: 2, price: 1600 })], ls, now);
+  assert.equal(f.last.id, ls[1].id);
+  const g = packageForecast("A", [pkg({ lessons: 10, price: 8000 })], ls, now);
+  assert.equal(g.last, null);
+  assert.equal(g.leftAfterBooked, 7);
 });
 
 test("2 週內到期：提醒；過期也能繼續扣", () => {
@@ -173,7 +179,7 @@ test("扣掉已預約（要扣方案的）後還能排幾堂", () => {
   assert.equal(s.available, 2);
 });
 
-import { lessonUnits, lastLessonIds } from "../web/js/billing.js";
+import { lessonUnits, lastLessonIds, packageForecast } from "../web/js/billing.js";
 
 const long = (day, mins, extra = {}) => lesson(day, { end: new Date(at(day).getTime() + mins * 60000), ...extra });
 

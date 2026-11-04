@@ -5,7 +5,7 @@ import {
   monthGrid, isFinished, findConflicts, eventsOnDay, todayView,
   SERIES_HORIZON_DAYS, parseDay, spanLabel, weekMinutes, gapsToday, hoursText, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
 } from "./logic.js?v=dev";
-import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey, lastLessonIds, unitsText, lessonUnits, needsHeadcount } from "./billing.js?v=dev";
+import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey, lastLessonIds, unitsText, lessonUnits, needsHeadcount, packageForecast } from "./billing.js?v=dev";
 
 // ---------- 狀態 ----------
 const state = {
@@ -388,11 +388,10 @@ function viewStudents() {
   const list = activeStudents();
   const rows = list.map((st) => {
     const sm = summaryOf(st);
-    const warn = sm.alerts.find((a) => a.level === "warn");
     const right = sm.packages.length ? `剩 ${unitsText(sm.remaining)} 堂` : sm.history.some((h) => h.source === "single") ? "單堂付費" : "沒有方案";
     return `<li><button class="stu-row" data-action="open-student" data-id="${st.id}">
-      <span class="stu-name">${esc(st.name)}${warn ? `<span class="stu-warn">${esc(warn.text)}</span>` : ""}</span>
-      <span class="stu-left ${warn ? "is-warn" : ""}">${right}</span></button></li>`;
+      <span class="stu-name">${esc(st.name)}</span>
+      <span class="stu-left ${sm.packages.length && sm.remaining < 1 ? "is-warn" : ""}">${right}</span></button></li>`;
   }).join("");
   return `
     <h1 class="page-title">學生</h1>
@@ -442,11 +441,25 @@ function viewStudentDetail(st) {
     </div>
     ${alerts ? `<ul class="alerts">${alerts}</ul>` : ""}
     <h2 class="section-title">方案</h2>
+    ${forecastLine(st)}
     <div class="panel">${pk || '<div class="panel-row"><span class="muted">還沒有方案</span></div>'}</div>
     ${pkgForm && pkgForm.id ? "" : packageForm("page")}
     <h2 class="section-title">上課紀錄</h2>
     ${hist || '<div class="panel"><div class="panel-row"><span class="muted">還沒有上過課</span></div></div>'}
     <button class="btn danger" data-action="remove-ref" data-type="student" data-id="${st.id}" style="margin-top:24px">刪除這位學生</button>`;
+}
+
+// 方案預估：照已排好的課，哪一天是最後一堂
+function forecastLine(st) {
+  const pkgs = state.packages.filter((p) => p.studentId === st.id);
+  if (!pkgs.length) return "";
+  const f = packageForecast(st.id, pkgs, allEvents(), new Date());
+  if (f.last) {
+    const d = f.last.start;
+    const past = d <= new Date();
+    return `<p class="forecast is-warn">${past ? "最後一堂已在" : "預計最後一堂："}<b>${d.getFullYear() !== new Date().getFullYear() ? d.getFullYear() + "/" : ""}${md(d)}（週${WEEKDAYS[d.getDay()]}）${hhmm(d)}</b>${past ? "上完，請提醒續購" : "，上完後記得提醒續購"}</p>`;
+  }
+  return `<p class="forecast">已排的課都扣得到，扣完還剩 <b>${unitsText(f.leftAfterBooked)} 堂</b></p>`;
 }
 
 // 登記／編輯方案的表單（學生頁和排課畫面共用）

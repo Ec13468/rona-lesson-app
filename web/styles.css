@@ -520,3 +520,7 @@ form[data-form=course][data-mode=tier] .mode-tier, form[data-form=course][data-m
 .legend { flex-wrap: wrap; row-gap: 4px; }
 .item.is-past .item-bar { opacity: .35; }
 .item .item-bar { align-self: stretch; min-height: 36px; }
+.forecast { margin: 0 0 8px; font-size: 15px; color: var(--muted); }
+.forecast b { color: var(--ink); }
+.forecast.is-warn { color: var(--alert); }
+.forecast.is-warn b { color: var(--alert); }

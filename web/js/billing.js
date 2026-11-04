@@ -74,9 +74,6 @@ export function studentSummary(student, packages, events, now) {
 
   if (unpaid > 0) alerts.push({ level: "warn", text: `有 ${unpaid} 堂課沒有方案可以扣，請提醒繳費` });
   else if (remaining < EPS && (pk.length > 0 || bookedUnits > 0)) alerts.push({ level: "warn", text: "方案已用完，請提醒繳費" });
-  if (bookedUnits > remaining + EPS && unpaid === 0 && remaining > EPS) {
-    alerts.push({ level: "warn", text: `已預約 ${unitsText(bookedUnits)} 堂，但方案只剩 ${unitsText(remaining)} 堂` });
-  }
   if (remaining > EPS && remaining <= 1 + EPS) alerts.push({ level: "warn", text: `方案只剩 ${unitsText(remaining)} 堂，快用完了` });
   for (const p of pk) {
     const left = p.lessons - p.used;
@@ -105,15 +102,20 @@ export function studentSummary(student, packages, events, now) {
 export function lastLessonIds(students, packagesOf, events, now) {
   const ids = new Set();
   for (const st of students) {
-    const pkgs = packagesOf(st.id);
-    if (!pkgs.length) continue;
-    const mine = events.filter((e) => e.kind === "lesson" && e.studentId === st.id && e.singlePrice == null);
-    const counted = mine.filter((e) => consumes(e, now) || (e.status === "scheduled" && !isFinished(e, now)));
-    const { history } = allocate(pkgs, counted);
-    const last = history.find((h) => h.packageIds.length && h.leftAfter < 1 - EPS);
-    if (last) ids.add(last.event.id);
+    const f = packageForecast(st.id, packagesOf(st.id), events, now);
+    if (f.last) ids.add(f.last.id);
   }
   return ids;
+}
+
+// 方案預估：照已排好的課往下扣，哪一堂是最後一堂；如果排好的課都扣完還有剩，回傳剩幾堂
+export function packageForecast(studentId, pkgs, events, now) {
+  if (!pkgs.length) return { last: null, leftAfterBooked: 0 };
+  const mine = events.filter((e) => e.kind === "lesson" && e.studentId === studentId && e.singlePrice == null);
+  const counted = mine.filter((e) => consumes(e, now) || (e.status === "scheduled" && !isFinished(e, now)));
+  const { history, pk } = allocate(pkgs, counted);
+  const hit = history.find((h) => h.packageIds.length && h.leftAfter < 1 - EPS);
+  return { last: hit ? hit.event : null, leftAfterBooked: pk.reduce((n, p) => n + (p.lessons - p.used), 0) };
 }
 
 // 一對一的當月認列收入：上完（或取消且扣堂）的課認列；還沒上的課照同樣規則預估
