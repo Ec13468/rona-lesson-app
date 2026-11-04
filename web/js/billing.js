@@ -145,6 +145,13 @@ export function lessonIncomeStatement(students, packagesOf, events, from, to, no
   return { rows, confirmed: Math.round(confirmed), estimate: Math.round(estimate), total: Math.round(confirmed + estimate) };
 }
 
+// 這種課要不要記人數：有設人數規則（每人加多少，或人數級距）才要；沒有就是開課固定金額
+export function needsHeadcount(course) {
+  if (!course) return false;
+  if (course.feeMode === "tier") return (course.tiers ?? []).length > 0;
+  return (course.bonusPer ?? 0) > 0;
+}
+
 // 鐘點費（跟著課程種類），沒填人數先算底薪。兩種算法：
 // bonus＝底薪＋超過 N 人後每多 1 人加 X 元；tier＝達到某人數後，整堂換成那個金額
 export function studioFee(course, attendance) {
@@ -166,7 +173,8 @@ export function studioStatement(studio, courseOf, events, from, to, now) {
     .map((e) => {
       const past = isFinished(e, now);
       const course = courseOf(e.courseId);
-      return { event: e, course, past, fee: studioFee(course, past ? e.attendance : null), missing: past && e.attendance == null };
+      const counts = needsHeadcount(course);
+      return { event: e, course, past, counts, fee: studioFee(course, past && counts ? e.attendance : null), missing: past && counts && e.attendance == null };
     });
   const confirmed = rows.filter((r) => r.past).reduce((n, r) => n + r.fee, 0);
   const estimate = rows.filter((r) => !r.past).reduce((n, r) => n + r.fee, 0);

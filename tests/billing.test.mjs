@@ -235,3 +235,18 @@ test("一對一認列：還沒上但方案不夠的，標出從哪一堂開始�
   assert.equal(r.rows[0].unpaidDone, 0);
   assert.equal(r.rows[0].shortFrom.getDate(), 30);
 });
+
+import { needsHeadcount } from "../web/js/billing.js";
+
+test("沒設人數規則的課：固定金額、不用記人數、不算沒填", () => {
+  const fixed = { baseFee: 1000, bonusAfter: 0, bonusPer: 0, feeMode: "bonus" };
+  const tierNone = { baseFee: 800, feeMode: "tier", tiers: [] };
+  assert.equal(needsHeadcount(fixed), false);
+  assert.equal(needsHeadcount(tierNone), false);
+  assert.equal(needsHeadcount({ baseFee: 800, bonusAfter: 6, bonusPer: 50 }), true);
+  assert.equal(needsHeadcount({ baseFee: 700, feeMode: "tier", tiers: [{ min: 6, fee: 750 }] }), true);
+  const ev = (day, extra = {}) => ({ id: "f" + ++n, kind: "studio", studioId: "S", courseId: "F", start: at(day), end: at(day, 11), status: "scheduled", ...extra });
+  const st = studioStatement({ id: "S" }, () => fixed, [ev(5), ev(6, { attendance: 30 }), ev(28)], new Date(2026, 9, 1), new Date(2026, 10, 1), now);
+  assert.equal(st.missing, 0);
+  assert.deepEqual(st.rows.map((r) => r.fee), [1000, 1000, 1000]);
+});

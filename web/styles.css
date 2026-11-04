@@ -506,3 +506,17 @@ form[data-form=course][data-mode=tier] .mode-tier, form[data-form=course][data-m
 .tier-row .input { padding: 9px 10px; text-align: center; }
 .tier-del { border: 0; background: none; color: var(--alert); font-size: 22px; line-height: 1; }
 .mode-tier .label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+
+/* 類別顏色：色條＋同色小標籤（不只靠顏色，也有文字） */
+.cat-pill {
+  display: inline-block; font-size: 12px; font-weight: 600; line-height: 1.5; padding: 0 7px; margin-right: 6px; border-radius: 8px;
+  color: var(--c); background: color-mix(in srgb, var(--c) 13%, white); vertical-align: 1px;
+}
+.item.is-cancelled .cat-pill, .item.is-past .cat-pill { filter: saturate(.4); opacity: .75; }
+.cat-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: 3px; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 16px; }
+.swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.swatch[aria-pressed="true"] { box-shadow: 0 0 0 2.5px var(--ink); }
+.legend { flex-wrap: wrap; row-gap: 4px; }
+.item.is-past .item-bar { opacity: .35; }
+.item .item-bar { align-self: stretch; min-height: 36px; }

@@ -5,7 +5,7 @@ import {
   monthGrid, isFinished, findConflicts, eventsOnDay, todayView,
   SERIES_HORIZON_DAYS, parseDay, spanLabel, weekMinutes, gapsToday, hoursText, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
 } from "./logic.js?v=dev";
-import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey, lastLessonIds, unitsText, lessonUnits } from "./billing.js?v=dev";
+import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey, lastLessonIds, unitsText, lessonUnits, needsHeadcount } from "./billing.js?v=dev";
 
 // ---------- 狀態 ----------
 const state = {
@@ -195,6 +195,18 @@ const feeRule = (c) => c.feeMode === "tier"
   ? [`底薪 ${c.baseFee}`, ...[...(c.tiers ?? [])].sort((a, b) => a.min - b.min).map((t) => `${t.min} 人 ${t.fee}`)].join("・")
   : c.bonusPer > 0 ? `底薪 ${c.baseFee}・第 ${c.bonusAfter + 1} 人起每人 +${c.bonusPer}` : `每堂 ${c.baseFee} 元`;
 const findCourse = (id) => state.courses.find((c) => c.id === id);
+
+// 每間教室一個顏色；沒自己選就依建立順序自動配（避開一對一的綠和個人行程的紫）
+const LESSON_COLOR = "#2E6B57", PERSONAL_COLOR = "#6E68B0";
+const STUDIO_PALETTE = ["#C27A12", "#2F7FA8", "#C0567A", "#1F8C8C", "#B4583A", "#5A6B8C", "#8C7A1F", "#A24FA0"];
+function studioColor(id) {
+  const st = findStudio(id);
+  if (st?.color) return st.color;
+  const i = Math.max(0, state.studios.findIndex((x) => x.id === id));
+  return STUDIO_PALETTE[i % STUDIO_PALETTE.length];
+}
+const eventColor = (e) => (e.kind === "lesson" ? LESSON_COLOR : e.kind === "personal" ? PERSONAL_COLOR : studioColor(e.studioId));
+const categoryName = (e) => (e.kind === "lesson" ? "一對一" : e.kind === "personal" ? "個人行程" : studioName(e.studioId));
 const coursesOf = (studioId) => state.courses.filter((c) => c.studioId === studioId && !c.hidden);
 
 function rangeFor(mode, cursor) {
@@ -230,10 +242,10 @@ function itemHTML(e, now = new Date(), day = e.start) {
   const range = span ? (sameDay(e.start, lastDay) ? "整天" : `${md(e.start)}–${md(lastDay)}`) : `到 ${hhmm(e.end)}`;
   return `<li><button class="item ${cls.join(" ")}" data-action="open" data-id="${e.id}">
     <span class="item-time">${span ? `${span.time}${span.sub ? `<small>${span.sub}</small>` : ""}` : `${hhmm(e.start)}<small>${minutesBetween(e.start, e.end)} 分鐘</small>`}</span>
-    <span class="item-bar"></span>
+    <span class="item-bar" style="background:${e.status === "cancelled" ? "var(--line)" : eventColor(e)}"></span>
     <span class="item-body">
       <span class="item-title">${esc(eventTitle(e))}${marks ? `<span class="marks">${marks}</span>` : ""}${tag}</span>
-      <span class="item-sub">${esc(eventSub(e))}・${range}</span>
+      <span class="item-sub"><span class="cat-pill" style="--c:${eventColor(e)}">${esc(categoryName(e))}</span>${esc(e.kind === "studio" && hasOwnTitle(e) ? `${courseName(e.courseId) ?? ""}・` : "")}${range}</span>
     </span>${lastIds.has(e.id) && e.status !== "cancelled" ? '<span class="last-badge">最後一堂</span>' : ""}</button></li>`;
 }
 
@@ -304,7 +316,7 @@ function viewCalendar() {
     const grid = monthGrid(c.getFullYear(), c.getMonth());
     const cells = grid.map((d) => {
       const dots = eventsOnDay(all, d).filter((e) => e.status !== "cancelled").slice(0, 4)
-        .map((e) => `<i class="${e.kind}"></i>`).join("");
+        .map((e) => `<i style="background:${eventColor(e)}"></i>`).join("");
       const cls = [d.getMonth() !== c.getMonth() ? "other" : "", sameDay(d, today) ? "is-today" : ""].join(" ");
       return `<button class="${cls}" data-action="pick-day" data-day="${dayKey(d)}" data-drop-day="${dayKey(d)}" aria-pressed="${sameDay(d, c)}" aria-label="${d.getMonth() + 1}月${d.getDate()}日">
         <span class="num">${d.getDate()}</span><span class="dots">${dots}</span></button>`;
@@ -325,7 +337,7 @@ function viewCalendar() {
     </div>
     ${mode === "week" ? `<p class="week-total">這週授課 <b>${hoursText(weekMinutes(all, c))}</b></p>` : ""}
     ${mode !== "day" ? '<p class="hint drag-hint">按住課程不放，可以拖到別天</p>' : ""}
-    <div class="legend"><span><i style="background:var(--lesson)"></i>一對一</span><span><i style="background:var(--studio)"></i>教室</span><span><i style="background:var(--personal)"></i>個人行程</span><span class="legend-icon">${icons.note}備註</span></div>
+    <div class="legend"><span><i style="background:${LESSON_COLOR}"></i>一對一</span>${activeStudios().map((st) => `<span><i style="background:${studioColor(st.id)}"></i>${esc(st.name)}</span>`).join("")}<span><i style="background:${PERSONAL_COLOR}"></i>個人行程</span><span class="legend-icon">${icons.note}備註</span></div>
     ${body}`;
 }
 
@@ -366,7 +378,7 @@ function todayAlerts() {
   // 方案剩餘的提醒改成行事曆上的「最後一堂」標記，首頁只留教室課沒填人數
   const items = [];
   const now = new Date();
-  const missing = allEvents().filter((e) => e.kind === "studio" && e.status !== "cancelled" && isFinished(e, now) && e.attendance == null).length;
+  const missing = allEvents().filter((e) => e.kind === "studio" && e.status !== "cancelled" && isFinished(e, now) && e.attendance == null && needsHeadcount(findCourse(e.courseId))).length;
   if (missing) items.push(`<li><button data-action="go-report"><b>教室課</b>有 ${missing} 堂還沒填上課人數</button></li>`);
   return items.length ? `<ul class="alert-list">${items.join("")}</ul>` : "";
 }
@@ -494,7 +506,7 @@ function viewReport() {
     confirmed += r.confirmed; estimate += r.estimate;
     const todays = isThisMonth ? r.rows.filter((x) => sameDay(x.event.start, now)).slice(0, 5) : [];
     return `<section class="rep-card">
-      <h2>${esc(st.name)}</h2>
+      <h2><i class="cat-dot" style="background:${studioColor(st.id)}"></i>${esc(st.name)}</h2>
       <p class="muted rule">${courseRules(st)}</p>
       ${studioSums(r)}
       ${r.missing ? `<p class="warn-text">有 ${r.missing} 堂還沒填人數，先用底薪計算。到「完整查看」就能補填。</p>` : ""}
@@ -532,7 +544,7 @@ function studioRow(x) {
   const name = hasOwnTitle(e) ? `${e.title}・${x.course?.name ?? ""}` : x.course?.name ?? e.title;
   return `<div class="rep-row ${x.missing ? "is-missing" : ""} ${started ? "" : "is-future"}">
     <button class="rep-open" data-action="open" data-id="${e.id}"><span>${md(e.start)} ${hhmm(e.start)}<small>${esc(name)}</small></span></button>
-    ${started
+    ${!x.counts ? '<span class="muted">固定</span>' : started
       ? `<label class="att"><input class="input att-input" type="number" min="0" step="1" inputmode="numeric" data-att-id="${e.id}" value="${e.attendance ?? ""}" placeholder="人數" aria-label="${md(e.start)} ${hhmm(e.start)} 上課人數"><span>人</span></label>`
       : '<span class="muted">還沒上</span>'}
     <span>${money(x.fee)}</span>
@@ -964,7 +976,7 @@ function renderSheet() {
       ${draft.adding === "course" ? `<div class="inline-add"><input class="input" id="new-name" placeholder="例如：空中瑜伽" autocomplete="off"><button type="button" class="chip" data-action="add-course" aria-pressed="true">加入</button></div><p class="hint">鐘點費之後到「我的」→ 教室 → 課程種類設定。</p>` : ""}
     </div>
     <div class="field"><label for="title">課程名稱（選填）</label><input class="input" id="title" data-bind="title" value="${esc(draft.title)}" placeholder="例如：哈達瑜伽；沒填就顯示「${esc(courseName(draft.courseId) ?? "課程種類")}」" autocomplete="off"></div>`;
-    if (editing && findCourse(draft.courseId)) {
+    if (editing && findCourse(draft.courseId) && needsHeadcount(findCourse(draft.courseId))) {
       who += `<div class="field"><label for="attendance">上課人數</label>
         <input class="input" id="attendance" type="number" min="0" inputmode="numeric" data-bind="attendance" value="${draft.attendance ?? ""}" placeholder="上完課後填">
         <div class="end-hint" id="fee-hint">${feeHint()}</div></div>`;
@@ -1352,7 +1364,9 @@ function renderActions() {
   if (!ev) return closeActions();
   const started = ev.start <= new Date();
   const course = findCourse(ev.courseId);
-  const att = ev.kind === "studio" && course ? `
+  const att = ev.kind === "studio" && course && !needsHeadcount(course)
+    ? `<p class="act-sub">固定鐘點費 ${money(studioFee(course, null))}（不用記人數）</p>`
+    : ev.kind === "studio" && course ? `
     <div class="field act-att"><label for="act-att">這堂上課人數</label>
       ${started
         ? `<div class="inline-add" style="margin-top:0"><input class="input att-input" id="act-att" type="number" min="0" step="1" inputmode="numeric" data-att-id="${ev.id}" value="${ev.attendance ?? ""}" placeholder="人數"><span style="align-self:center">人</span></div>
@@ -1571,6 +1585,13 @@ document.addEventListener("click", async (ev) => {
     render();
   }
   else if (a === "edit-studio") openStudioSheet(el.dataset.id);
+  else if (a === "pick-color") {
+    try {
+      const st = await store.updateStudio(studioSheetId, { color: el.dataset.color });
+      state.studios[state.studios.findIndex((x) => x.id === st.id)] = st;
+      openStudioSheet(st.id); render(); toast("已更新顏色");
+    } catch (e) { console.error(e); toast("沒有存成功，請檢查網路後再試"); }
+  }
   else if (a === "me-section") {
     state.meSection = el.dataset.section;
     openLayer("me-section", () => { state.meSection = null; render(); });
@@ -1730,6 +1751,8 @@ function openStudioSheet(id) {
       <h2>${esc(st.name)}</h2>
       <div class="field"><label for="st-name">教室名稱</label>
         <div class="inline-add" style="margin:0"><input class="input" id="st-name" value="${esc(st.name)}" autocomplete="off"><button class="chip" type="submit" aria-pressed="true">儲存</button></div></div>
+      <span class="label">日曆上的顏色</span>
+      <div class="swatches">${STUDIO_PALETTE.map((c) => `<button type="button" class="swatch" data-action="pick-color" data-color="${c}" style="background:${c}" aria-pressed="${studioColor(st.id) === c}" aria-label="選這個顏色"></button>`).join("")}</div>
       <span class="label">課程種類與鐘點費</span>
       <div class="panel panel-in-sheet">${courses || '<div class="panel-row"><span class="muted">還沒有課程種類</span></div>'}</div>
       <button type="button" class="btn quiet" data-action="edit-course" data-id="">＋ 新增課程種類</button>

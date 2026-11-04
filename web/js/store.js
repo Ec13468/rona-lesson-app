@@ -47,10 +47,12 @@ const toPerson = (r) => ({
   id: r.id, name: r.name, hidden: !!r.archived_at,
   perLessonPrice: r.per_lesson_price ?? null,
   baseFee: r.base_fee ?? 0, bonusAfter: r.bonus_after ?? 0, bonusPer: r.bonus_per ?? 0,
+  color: r.color ?? null,
 });
 const personRow = (x) => {
   const row = {};
   if ("name" in x) row.name = x.name;
+  if ("color" in x) row.color = x.color;
   if ("perLessonPrice" in x) row.per_lesson_price = x.perLessonPrice;
   if ("baseFee" in x) row.base_fee = x.baseFee;
   if ("bonusAfter" in x) row.bonus_after = x.bonusAfter;
