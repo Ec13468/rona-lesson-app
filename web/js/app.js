@@ -5,7 +5,7 @@ import {
   monthGrid, isFinished, findConflicts, eventsOnDay, todayView,
   SERIES_HORIZON_DAYS, parseDay, spanLabel, weekMinutes, gapsToday, hoursText, occurrenceDates, buildOccurrence, pendingOccurrences, dayBefore,
 } from "./logic.js?v=dev";
-import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey, lastLessonIds, unitsText, lessonUnits, needsHeadcount, packageForecast } from "./billing.js?v=dev";
+import { studentSummary, studioFee, studioStatement, lessonIncomeStatement, addMonthsKey, lastLessonIds, unitsText, lessonUnits, needsHeadcount } from "./billing.js?v=dev";
 
 // ---------- 狀態 ----------
 const state = {
@@ -388,7 +388,7 @@ function viewStudents() {
   const list = activeStudents();
   const rows = list.map((st) => {
     const sm = summaryOf(st);
-    const right = sm.packages.length ? `剩 ${unitsText(sm.remaining)} 堂` : sm.history.some((h) => h.source === "single") ? "單堂付費" : "沒有方案";
+    const right = sm.packages.length ? `剩 ${unitsText(sm.remaining)} 小時` : sm.history.some((h) => h.source === "single") ? "單堂付費" : "沒有方案";
     return `<li><button class="stu-row" data-action="open-student" data-id="${st.id}">
       <span class="stu-name">${esc(st.name)}</span>
       <span class="stu-left ${sm.packages.length && sm.remaining < 1 ? "is-warn" : ""}">${right}</span></button></li>`;
@@ -405,15 +405,10 @@ function viewStudents() {
 function viewStudentDetail(st) {
   const sm = summaryOf(st);
   const alerts = sm.alerts.map((a) => `<li class="${a.level}">${esc(a.text)}</li>`).join("");
-  const pk = sm.packages.slice().reverse().map((p) => pkgForm && pkgForm.id === p.id ? `<div class="pkg-edit">${packageForm("page")}</div>` : `
-    <button class="panel-row pkg-row row-btn" data-action="package-edit" data-id="${p.id}">
-      <span><b>${p.lessons} 堂・${money(p.price)}</b>
-        <small>${mdKey(p.purchasedOn)} 購買${p.expiresOn ? `・${mdKey(p.expiresOn)} 到期` : "・不設期限"}</small></span>
-      <span class="pkg-left">剩 ${unitsText(p.left)} 堂<span class="muted">編輯</span></span>
-    </button>`).join("");
+  const pk = sm.packages.slice().reverse().map((p) => pkgForm && pkgForm.id === p.id ? `<div class="order-card">${packageForm("page")}</div>` : orderCard(p)).join("");
   // 上過的課（含取消但扣堂的），每一堂都能寫上課筆記
   const hist = sm.history.slice().reverse().map(({ event: e }) => {
-    const head = `<div class="ln-head"><b>${e.start.getFullYear() !== new Date().getFullYear() ? e.start.getFullYear() + "/" : ""}${md(e.start)}（${WEEKDAYS[e.start.getDay()]}）${hhmm(e.start)}</b>${e.status === "cancelled" ? '<span class="tag cancel">取消・扣堂</span>' : ""}</div>`;
+    const head = `<div class="ln-head"><b>${e.start.getFullYear() !== new Date().getFullYear() ? e.start.getFullYear() + "/" : ""}${md(e.start)}（${WEEKDAYS[e.start.getDay()]}）${hhmm(e.start)}</b>${e.status === "cancelled" ? '<span class="tag cancel">取消・扣時數</span>' : ""}</div>`;
     if (noteEditId === e.id) {
       return `<div class="ln-card is-editing">${head}
         <textarea class="input note-input" id="ln-text" rows="4" placeholder="這堂課的狀況、進度、下次要注意的地方">${esc(e.lessonNotes)}</textarea>
@@ -435,44 +430,56 @@ function viewStudentDetail(st) {
       <button class="text-btn" data-action="rename-student">改名</button></div>`}
     <div class="stats">
       <div><b>${sm.attended}</b><span>已上堂數</span></div>
-      <div><b>${unitsText(sm.remaining)}</b><span>剩餘堂數</span></div>
+      <div><b>${unitsText(sm.remaining)}<small>小時</small></b><span>剩餘時數</span></div>
       <div><b>${sm.booked}</b><span>已預約</span></div>
       <div><b>${Math.round(sm.income).toLocaleString("zh-TW")}<small>元</small></b><span>總收入</span></div>
     </div>
     ${alerts ? `<ul class="alerts">${alerts}</ul>` : ""}
-    <h2 class="section-title">方案</h2>
-    ${forecastLine(st)}
-    <div class="panel">${pk || '<div class="panel-row"><span class="muted">還沒有方案</span></div>'}</div>
+    <h2 class="section-title">方案詳情</h2>
+    ${pk || '<div class="panel"><div class="panel-row"><span class="muted">還沒有儲值紀錄</span></div></div>'}
     ${pkgForm && pkgForm.id ? "" : packageForm("page")}
     <h2 class="section-title">上課紀錄</h2>
     ${hist || '<div class="panel"><div class="panel-row"><span class="muted">還沒有上過課</span></div></div>'}
     <button class="btn danger" data-action="remove-ref" data-type="student" data-id="${st.id}" style="margin-top:24px">刪除這位學生</button>`;
 }
 
-// 方案預估：照已排好的課，哪一天是最後一堂
-function forecastLine(st) {
-  const pkgs = state.packages.filter((p) => p.studentId === st.id);
-  if (!pkgs.length) return "";
-  const f = packageForecast(st.id, pkgs, allEvents(), new Date());
-  if (f.last) {
-    const d = f.last.start;
-    const past = d <= new Date();
-    return `<p class="forecast is-warn">${past ? "最後一堂已在" : "預計最後一堂："}<b>${d.getFullYear() !== new Date().getFullYear() ? d.getFullYear() + "/" : ""}${md(d)}（週${WEEKDAYS[d.getDay()]}）${hhmm(d)}</b>${past ? "上完，請提醒續購" : "，上完後記得提醒續購"}</p>`;
-  }
-  return `<p class="forecast">已排的課都扣得到，扣完還剩 <b>${unitsText(f.leftAfterBooked)} 堂</b></p>`;
+// 一筆訂單：儲值多少、剩多少、效期、每一次使用的紀錄
+const openOrders = new Set(); // 展開全部使用紀錄的訂單
+function orderCard(p) {
+  const today = dayKey(new Date());
+  const used = p.lessons - p.left;
+  const pct = p.lessons > 0 ? Math.min(100, Math.round((used / p.lessons) * 100)) : 100;
+  const expiry = !p.expiresOn ? "不設期限" : p.expiresOn < today ? `${mdKey(p.expiresOn)} 已到期（剩下的還能用）` : `${mdKey(p.expiresOn)} 到期`;
+  const usage = p.usage.slice().reverse();
+  const shown = openOrders.has(p.id) ? usage : usage.slice(0, 5);
+  const rows = shown.map((u) => {
+    const d = u.event.start;
+    return `<li><span>${d.getFullYear() !== new Date().getFullYear() ? d.getFullYear() + "/" : ""}${md(d)}（${WEEKDAYS[d.getDay()]}）${hhmm(d)}${u.event.status === "cancelled" ? "・取消扣時數" : ""}</span><span>−${unitsText(u.hours)} 小時</span></li>`;
+  }).join("");
+  return `<div class="order-card ${p.left <= 1e-9 ? "is-done" : ""}">
+    <div class="order-head"><b>儲值 ${unitsText(p.lessons)} 小時</b><span>${money(p.price)}</span>
+      <button class="text-btn small" data-action="package-edit" data-id="${p.id}">編輯</button></div>
+    <div class="order-left">剩 <b>${unitsText(p.left)}</b> 小時<span class="muted">・已用 ${unitsText(used)} 小時</span></div>
+    <div class="order-bar"><i style="width:${pct}%"></i></div>
+    <p class="order-meta">${mdKey(p.purchasedOn)} 購買・${expiry}</p>
+    ${usage.length ? `<span class="label">使用紀錄</span><ul class="order-usage">${rows}</ul>
+      ${usage.length > 5 ? `<button class="text-btn small" data-action="order-toggle" data-id="${p.id}">${openOrders.has(p.id) ? "收起" : `顯示全部 ${usage.length} 筆`}</button>` : ""}`
+      : '<p class="order-meta">還沒有使用紀錄</p>'}
+  </div>`;
 }
 
 // 登記／編輯方案的表單（學生頁和排課畫面共用）
 let pkgForm = null; // null＝收起；{ id: null }＝新增；{ id }＝編輯
 function packageForm(where) {
-  if (!pkgForm) return `<button type="button" class="btn quiet" data-action="package-open">＋ 登記購買方案</button>`;
+  if (!pkgForm) return `<button type="button" class="btn quiet" data-action="package-open">＋ 儲值時數</button>`;
   const p = pkgForm.id ? state.packages.find((x) => x.id === pkgForm.id) : null;
   const mode = p ? (p.expiresOn ? "date" : "none") : "months";
   const modeBtn = (m, label) => `<button type="button" data-action="pk-exp-mode" data-mode="${m}" aria-pressed="${mode === m}">${label}</button>`;
   return `<div class="pkg-form" data-exp="${mode}">
-    ${p ? "<h3>編輯方案</h3>" : ""}
+    <h3>${p ? "編輯訂單" : "儲值時數"}</h3>
     <div class="row2">
-      <div class="field"><label for="pk-lessons">堂數</label><input class="input" id="pk-lessons" type="number" min="1" inputmode="numeric" value="${p ? p.lessons : 10}"></div>
+      <div class="field"><label for="pk-lessons">儲值時數（小時）</label>
+        <div class="stepper"><button type="button" data-action="pk-step" data-d="-0.5" aria-label="減 0.5 小時">−</button><input class="input" id="pk-lessons" type="number" min="0.5" step="0.5" inputmode="decimal" value="${p ? unitsText(p.lessons) : 10}"><button type="button" data-action="pk-step" data-d="0.5" aria-label="加 0.5 小時">＋</button></div></div>
       <div class="field"><label for="pk-price">金額（元）</label><input class="input" id="pk-price" type="number" min="0" step="1" inputmode="numeric" value="${p ? p.price : ""}" placeholder="例如 8000"></div>
     </div>
     <div class="field"><span class="label">購買日期</span>${pickField("pk-date", "date", p ? p.purchasedOn : dayKey(new Date()))}</div>
@@ -482,35 +489,25 @@ function packageForm(where) {
       <div class="exp-date">${pickField("pk-exp", "date", p?.expiresOn ?? "", { placeholder: "選到期日" })}</div>
     </div>
     <p class="form-error" id="pk-error"></p>
-    <div class="btn-row"><button type="button" class="btn quiet" data-action="package-close">${p ? "取消編輯" : "先不要"}</button><button type="button" class="btn" data-action="package-save" data-where="${where}">${p ? "儲存方案" : "登記方案"}</button></div>
-    ${p ? `<button type="button" class="btn danger" data-action="delete-package" data-id="${p.id}">刪除這個方案</button>` : ""}
+    <div class="btn-row"><button type="button" class="btn quiet" data-action="package-close">${p ? "取消編輯" : "先不要"}</button><button type="button" class="btn" data-action="package-save" data-where="${where}">${p ? "儲存訂單" : "儲值"}</button></div>
+    ${p ? `<button type="button" class="btn danger" data-action="delete-package" data-id="${p.id}">刪除這筆訂單</button>` : ""}
   </div>`;
 }
 
 function viewReport() {
+  if (state.reportStudio === "__lessons") return viewReportLessons();
   if (state.reportStudio && findStudio(state.reportStudio)) return viewReportStudio(findStudio(state.reportStudio));
   const m = state.reportMonth;
   const from = m, to = new Date(m.getFullYear(), m.getMonth() + 1, 1);
   const now = new Date();
 
   const lessons = lessonIncomeStatement(state.students, (id) => state.packages.filter((p) => p.studentId === id), allEvents(), from, to, now);
-  const lessonRows = lessons.rows.map((r) => `
-    <button class="rep-row" data-action="open-student" data-id="${r.student.id}">
-      <span>${esc(r.student.name)}${r.unpaidDone ? `<small class="warn-text">${r.unpaidDone} 堂已上完但沒有方案可扣</small>` : ""}${r.shortFrom ? `<small class="warn-text">${md(r.shortFrom)} 起方案不夠，記得提醒續購</small>` : ""}</span>
-      <span>${r.doneCount} 堂${r.futureCount ? `<small>還有 ${r.futureCount} 堂</small>` : ""}</span>
-      <span>${money(r.doneAmount)}${r.futureCount ? `<small>＋${money(r.futureAmount)}</small>` : ""}</span>
-    </button>`).join("");
   const lessonCard = `<section class="rep-card">
-    <h2>一對一</h2>
-    <p class="muted rule">上完一堂就認列一堂的錢；還沒上的課先列預估</p>
-    <div class="rep-sum">
-      <div><span>已上完</span><b>${money(lessons.confirmed)}</b></div>
-      <div><span>還沒上</span><b>${money(lessons.estimate)}</b></div>
-      <div><span>本月合計</span><b>${money(lessons.total)}</b></div>
-    </div>
-    ${lessonRows ? `<div class="rep-rows">${lessonRows}</div>` : '<p class="muted">這個月沒有一對一課。</p>'}
+    <h2><i class="cat-dot" style="background:${LESSON_COLOR}"></i>一對一</h2>
+    <p class="muted rule">上完一堂就認列一堂的錢</p>
+    <div class="rep-one"><span>已上完</span><b>${money(lessons.confirmed)}</b></div>
+    ${lessons.rows.length ? `<div class="rep-more"><button class="text-btn" data-action="report-studio" data-id="__lessons">完整查看 ›</button></div>` : '<p class="muted">這個月沒有一對一課。</p>'}
   </section>`;
-
   let confirmed = lessons.confirmed, estimate = lessons.estimate;
   const isThisMonth = m.getFullYear() === now.getFullYear() && m.getMonth() === now.getMonth();
   const studioCards = state.studios.map((st) => {
@@ -562,6 +559,28 @@ function studioRow(x) {
       : '<span class="muted">還沒上</span>'}
     <span>${money(x.fee)}</span>
   </div>`;
+}
+
+// 完整查看：一對一這個月每位學生的明細
+function viewReportLessons() {
+  const m = state.reportMonth;
+  const r = lessonIncomeStatement(state.students, (id) => state.packages.filter((p) => p.studentId === id), allEvents(), m, new Date(m.getFullYear(), m.getMonth() + 1, 1), new Date());
+  const rows = r.rows.map((x) => `
+    <button class="rep-row" data-action="open-student" data-id="${x.student.id}">
+      <span>${esc(x.student.name)}${x.unpaidDone ? `<small class="warn-text">${x.unpaidDone} 堂已上完但沒有方案可扣</small>` : ""}</span>
+      <span>${x.doneCount} 堂${x.futureCount ? `<small>還有 ${x.futureCount} 堂</small>` : ""}</span>
+      <span>${money(x.doneAmount)}${x.futureCount ? `<small>＋${money(x.futureAmount)}</small>` : ""}</span>
+    </button>`).join("");
+  return `
+    <button class="back-btn" data-action="back-report">${icons.back}報表</button>
+    <h1 class="page-title">一對一</h1>
+    <p class="muted rule">${m.getFullYear()}年${m.getMonth() + 1}月・上完一堂就認列一堂的錢，還沒上的另外列預估</p>
+    <div class="rep-sum">
+      <div><span>已上完</span><b>${money(r.confirmed)}</b></div>
+      <div><span>還沒上</span><b>${money(r.estimate)}</b></div>
+      <div><span>本月合計</span><b>${money(r.total)}</b></div>
+    </div>
+    ${rows ? `<div class="rep-rows rep-full">${rows}</div>` : '<div class="empty"><p>這個月沒有一對一課。</p></div>'}`;
 }
 
 // 完整查看：某間教室這個月的每一堂
@@ -785,7 +804,7 @@ function paySection(st) {
     body = `<div class="inline-add" style="margin-top:0"><input class="input" id="price" type="number" min="0" step="1" inputmode="numeric" data-bind="price" value="${esc(draft.price)}" placeholder="每小時的金額" aria-label="每小時金額"><span style="align-self:center">元／小時</span></div>
       <div class="end-hint" id="price-hint">${priceHint()}</div>`;
   } else if (sm.available > 0 || (draft.id && draft.singlePrice == null && sm.remaining > 0)) {
-    body = `<div class="bill-line">方案還可以排 ${unitsText(Math.max(sm.available, 0))} 堂（剩 ${unitsText(sm.remaining)} 堂）・這堂扣 ${unitsText(draft.mins / 60)} 堂</div>`;
+    body = `<div class="bill-line">方案剩 ${unitsText(sm.remaining)} 小時・這堂扣 ${unitsText(draft.mins / 60)} 小時</div>`;
   } else {
     body = `<div class="bill-line is-warn">${esc(st.name)}沒有方案可以扣了，請提醒繳費</div>${packageForm("sheet")}`;
   }
@@ -1059,7 +1078,7 @@ function renderSheet() {
 
   const seriesNote = editing && draft.seriesId ? `<div class="state-note">${icons.repeat} 這是固定每週的課，修改時可以選只改這一堂，或這一堂和之後的都改。</div>` : "";
   const statusNote = draft.status === "cancelled"
-    ? `<div class="state-note">這堂課已取消${k === "lesson" ? `（${draft.deduct ? "有扣堂數" : "沒扣堂數"}）` : ""}。</div>` : "";
+    ? `<div class="state-note">這堂課已取消${k === "lesson" ? `（${draft.deduct ? "有扣時數" : "沒扣時數"}）` : ""}。</div>` : "";
 
   const actions = [];
   if (editing && !personal && draft.status === "scheduled") actions.push('<button type="button" class="btn quiet" data-action="cancel-event">取消這堂課</button>');
@@ -1504,10 +1523,10 @@ async function cancelEvent(ev = state.events.get(draft.id)) {
   let deduct = false;
   if (ev.kind === "lesson") {
     const choice = await showDialog({
-      title: "取消這堂課", text: `${describe(ev)}・${md(ev.start)} ${hhmm(ev.start)}。這堂要扣堂數嗎？`,
+      title: "取消這堂課", text: `${describe(ev)}・${md(ev.start)} ${hhmm(ev.start)}。這堂要扣時數嗎？`,
       buttons: [
-        { label: "不扣堂數", value: "keep" },
-        { label: "扣堂數", value: "deduct", style: "quiet" },
+        { label: "不扣時數", value: "keep" },
+        { label: "扣時數", value: "deduct", style: "quiet" },
         { label: "返回", value: "back", style: "danger" },
       ],
     });
@@ -1671,6 +1690,11 @@ document.addEventListener("click", async (ev) => {
   else if (a === "remove-course") await removeCourse();
   else if (a === "package-open") { pkgForm = { id: null }; draft ? renderSheet() : render(); document.getElementById("pk-price")?.focus(); }
   else if (a === "package-edit") { pkgForm = { id: el.dataset.id }; render(); }
+  else if (a === "order-toggle") { openOrders.has(el.dataset.id) ? openOrders.delete(el.dataset.id) : openOrders.add(el.dataset.id); render(); }
+  else if (a === "pk-step") {
+    const input = document.getElementById("pk-lessons");
+    input.value = unitsText(Math.max(0.5, (Number(input.value) || 0) + Number(el.dataset.d)));
+  }
   else if (a === "package-close") { pkgForm = null; draft ? renderSheet() : render(); }
   else if (a === "pk-exp-mode") {
     const form = el.closest(".pkg-form");
@@ -1764,7 +1788,7 @@ async function savePackage(where) {
     if (!v("pk-exp")) { err.textContent = "請選到期日。"; return; }
     expiresOn = v("pk-exp");
   }
-  if (!(lessons >= 1)) { err.textContent = "請填堂數。"; return; }
+  if (!(lessons >= 0.5)) { err.textContent = "請填儲值時數（至少 0.5 小時）。"; return; }
   if (v("pk-price") === "" || !(price >= 0)) { err.textContent = "請填金額。"; return; }
   if (expiresOn && expiresOn < purchasedOn) { err.textContent = "到期日不能早於購買日期。"; return; }
   try {
@@ -1778,7 +1802,7 @@ async function savePackage(where) {
     const edited = !!pkgForm?.id;
     pkgForm = null;
     draft ? renderSheet() : render();
-    toast(edited ? "已更新方案" : "已登記方案");
+    toast(edited ? "已更新訂單" : "已儲值");
   } catch (e) { console.error(e); err.textContent = "沒有存成功，請檢查網路後再試。"; }
 }
 

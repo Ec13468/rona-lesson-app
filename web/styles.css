@@ -524,3 +524,27 @@ form[data-form=course][data-mode=tier] .mode-tier, form[data-form=course][data-m
 .forecast b { color: var(--ink); }
 .forecast.is-warn { color: var(--alert); }
 .forecast.is-warn b { color: var(--alert); }
+
+/* 方案詳情：每筆訂單 */
+.order-card { background: var(--surface); border-radius: 16px; padding: 14px 16px; margin-bottom: 10px; }
+.order-card.is-done { opacity: .75; }
+.order-head { display: flex; align-items: baseline; gap: 10px; }
+.order-head b { font-size: 17px; }
+.order-head span { color: var(--muted); font-variant-numeric: tabular-nums; flex: 1; }
+.order-left { margin-top: 6px; font-size: 15px; }
+.order-left b { font-size: 22px; color: var(--lesson); font-variant-numeric: tabular-nums; }
+.order-card.is-done .order-left b { color: var(--muted); }
+.order-bar { height: 6px; border-radius: 3px; background: var(--paper); margin: 8px 0; overflow: hidden; }
+.order-bar i { display: block; height: 100%; background: var(--lesson); opacity: .45; }
+.order-meta { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.order-card .label { display: block; font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+.order-usage { list-style: none; margin: 0 0 4px; padding: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.order-usage li { display: flex; justify-content: space-between; padding: 5px 0; border-top: 1px solid var(--line); }
+.order-usage li span:last-child { color: var(--muted); }
+.order-card .pkg-form { background: none; padding: 0; margin: 0; }
+.stepper { display: grid; grid-template-columns: 40px 1fr 40px; gap: 6px; }
+.stepper button { border: 1.5px solid var(--line); background: var(--surface); border-radius: 12px; font-size: 20px; color: var(--lesson); }
+.stepper .input { text-align: center; }
+.rep-one { display: flex; align-items: baseline; justify-content: space-between; background: var(--paper); border-radius: 12px; padding: 10px 12px; }
+.rep-one span { color: var(--muted); font-size: 14px; }
+.rep-one b { font-size: 20px; font-variant-numeric: tabular-nums; }

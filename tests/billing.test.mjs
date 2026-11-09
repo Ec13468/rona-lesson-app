@@ -61,25 +61,34 @@ test("剛好用完、還沒超上：提醒方案已用完", () => {
   assert.ok(s.alerts.some((a) => a.text === "方案已用完，請提醒繳費"));
 });
 
-test("剩 1 堂：快用完", () => {
-  const s = studentSummary(A, [pkg({ lessons: 2, price: 1600 })], [lesson(14)], now);
-  assert.ok(s.alerts.some((a) => /只剩 1 堂/.test(a.text)));
+test("快用完：只有下一堂上完就用完時才提醒（未來的課不先算成已用）", () => {
+  // 儲值 2 小時，上過 1 小時，下一堂 1 小時 → 提醒
+  const s = studentSummary(A, [pkg({ lessons: 2, price: 1600 })], [lesson(14), lesson(25)], now);
+  assert.ok(s.alerts.some((a) => /只剩 1 小時，下一堂上完就用完了/.test(a.text)));
+  // 儲值 4 小時，上過 1 小時，後面排了 3 堂 → 還剩 3 小時，不提醒
+  const t = studentSummary(A, [pkg({ lessons: 4, price: 3200 })], [lesson(14), lesson(25), lesson(32), lesson(39)], now);
+  assert.equal(t.remaining, 3);
+  assert.ok(!t.alerts.some((a) => /只剩|用完/.test(a.text)));
+  // 下一堂 1.5 小時，只剩 1.5 小時 → 提醒
+  const u = studentSummary(A, [pkg({ lessons: 3, price: 3000 })], [long(14, 90), long(25, 90)], now);
+  assert.ok(u.alerts.some((a) => /只剩 1.5 小時/.test(a.text)));
 });
 
-test("預約的課比剩餘堂數多：不另外提醒，改成預估最後一堂", () => {
-  const ls = [lesson(20), lesson(21), lesson(22)];
-  const s = studentSummary(A, [pkg({ lessons: 2, price: 1600 })], ls, now);
-  assert.ok(!s.alerts.some((a) => /已預約/.test(a.text)));
-  const f = packageForecast("A", [pkg({ lessons: 2, price: 1600 })], ls, now);
-  assert.equal(f.last.id, ls[1].id);
-  const g = packageForecast("A", [pkg({ lessons: 10, price: 8000 })], ls, now);
-  assert.equal(g.last, null);
-  assert.equal(g.leftAfterBooked, 7);
+test("每筆方案記錄使用紀錄（哪一堂扣了幾小時）", () => {
+  const p1 = pkg({ lessons: 1.5, price: 1500, purchasedOn: "2026-09-01" });
+  const p2 = pkg({ lessons: 5, price: 5000, purchasedOn: "2026-10-01" });
+  const ls = [lesson(14), long(15, 90)];
+  const s = studentSummary(A, [p1, p2], ls, now);
+  const a = s.packages.find((p) => p.id === p1.id), b = s.packages.find((p) => p.id === p2.id);
+  assert.deepEqual(a.usage.map((u) => u.hours), [1, 0.5]);
+  assert.deepEqual(b.usage.map((u) => u.hours), [1]);
+  assert.equal(a.left, 0);
+  assert.equal(b.left, 4);
 });
 
 test("2 週內到期：提醒；過期也能繼續扣", () => {
   const soon = studentSummary(A, [pkg({ expiresOn: "2026-11-01" })], [], now);
-  assert.ok(soon.alerts.some((a) => /11\/1 到期，還剩 10 堂/.test(a.text)));
+  assert.ok(soon.alerts.some((a) => /11\/1 到期，還剩 10 小時/.test(a.text)));
   const expired = studentSummary(A, [pkg({ expiresOn: "2026-10-10" })], [lesson(15)], now);
   assert.equal(expired.remaining, 9);
   assert.equal(expired.income, 800);
@@ -179,7 +188,7 @@ test("扣掉已預約（要扣方案的）後還能排幾堂", () => {
   assert.equal(s.available, 2);
 });
 
-import { lessonUnits, lastLessonIds, packageForecast } from "../web/js/billing.js";
+import { lessonUnits, lastLessonIds } from "../web/js/billing.js";
 
 const long = (day, mins, extra = {}) => lesson(day, { end: new Date(at(day).getTime() + mins * 60000), ...extra });
 
@@ -204,15 +213,18 @@ test("一堂課可以跨兩個方案扣；不夠的部分算沒付費", () => {
   assert.equal(s.remaining, 0);
 });
 
-test("最後一堂：扣完後方案剩不到 1 堂的那一堂（含已預約的課）", () => {
-  const ls = [lesson(14), lesson(21), lesson(28), lesson(35)];  // 前一堂上過，後三堂預約
-  const ids = lastLessonIds([A], () => [pkg({ lessons: 3, price: 2400 })], ls, now);
-  assert.deepEqual([...ids], [ls[2].id]);
-  // 單堂付費的課不算
-  const ids2 = lastLessonIds([A], () => [pkg({ lessons: 2, price: 1600 })], [lesson(14), lesson(21, { singlePrice: 500 }), lesson(28)], now);
-  assert.equal(ids2.size, 1);
-  // 沒有方案就不標
+test("最後一堂：只在真的剩最後一堂時，標在下一堂", () => {
+  const ls = [lesson(14), lesson(21), lesson(28), lesson(35)];  // 上過 1 堂，後三堂預約
+  // 儲值 3 小時：還剩 2 小時，下一堂不是最後一堂 → 不標
+  assert.equal(lastLessonIds([A], () => [pkg({ lessons: 3, price: 2400 })], ls, now).size, 0);
+  // 儲值 2 小時：還剩 1 小時 → 標在下一堂（10/21）
+  assert.deepEqual([...lastLessonIds([A], () => [pkg({ lessons: 2, price: 1600 })], ls, now)], [ls[1].id]);
+  // 單堂付費的課不算，跳過去標下一個要扣方案的
+  const ls2 = [lesson(14), lesson(21, { singlePrice: 500 }), lesson(28)];
+  assert.deepEqual([...lastLessonIds([A], () => [pkg({ lessons: 2, price: 1600 })], ls2, now)], [ls2[2].id]);
+  // 沒有方案、或已經用完，都不標
   assert.equal(lastLessonIds([A], () => [], ls, now).size, 0);
+  assert.equal(lastLessonIds([A], () => [pkg({ lessons: 1, price: 800 })], ls, now).size, 0);
 });
 
 test("登記新方案後，之前沒方案的課和之後的課都會自動扣", () => {

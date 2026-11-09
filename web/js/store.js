@@ -86,7 +86,7 @@ const courseRow = (c) => {
   return row;
 };
 const toPackage = (r) => ({
-  id: r.id, studentId: r.student_id, lessons: r.lessons, price: r.price,
+  id: r.id, studentId: r.student_id, lessons: Number(r.lessons), price: r.price,
   purchasedOn: r.purchased_on, expiresOn: r.expires_on, createdAt: r.created_at,
 });
 const packageRow = (p) => ({

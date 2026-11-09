@@ -11,12 +11,12 @@ export function consumes(e, now) {
   return isFinished(e, now);
 }
 
-// 一堂課算幾堂：照時數，1 小時＝1 堂，1.5 小時＝1.5 堂
+// 一堂課用掉幾小時（方案是儲值時數，上多久扣多久）
 export function lessonUnits(e) {
   return Math.round(((e.end - e.start) / 3600000) * 100) / 100;
 }
 
-// 堂數顯示：整數就寫整數，有小數寫一位
+// 時數顯示：整數就寫整數，有小數寫一位
 export function unitsText(n) {
   const r = Math.round(n * 10) / 10;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
@@ -27,7 +27,7 @@ export function unitsText(n) {
 function allocate(packages, lessons) {
   const pk = [...packages]
     .sort((a, b) => a.purchasedOn.localeCompare(b.purchasedOn) || String(a.createdAt).localeCompare(String(b.createdAt)))
-    .map((p) => ({ ...p, used: 0, value: p.price / p.lessons }));
+    .map((p) => ({ ...p, used: 0, value: p.lessons > 0 ? p.price / p.lessons : 0, usage: [] }));
   const history = [];
   for (const e of [...lessons].sort((a, b) => a.start - b.start)) {
     const units = lessonUnits(e);
@@ -43,6 +43,7 @@ function allocate(packages, lessons) {
       if (take <= EPS) continue;
       p.used += take; need -= take; amount += take * p.value;
       from.push(p.id);
+      p.usage.push({ event: e, hours: take });
     }
     const unpaidUnits = need > EPS ? need : 0;
     history.push({
@@ -72,15 +73,18 @@ export function studentSummary(student, packages, events, now) {
   const warnUntil = dayKey(addDays(startOfDay(now), EXPIRY_WARN_DAYS));
   const alerts = [];
 
+  const next = booked.filter((e) => e.singlePrice == null).sort((a, b) => a.start - b.start)[0];
   if (unpaid > 0) alerts.push({ level: "warn", text: `有 ${unpaid} 堂課沒有方案可以扣，請提醒繳費` });
   else if (remaining < EPS && (pk.length > 0 || bookedUnits > 0)) alerts.push({ level: "warn", text: "方案已用完，請提醒繳費" });
-  if (remaining > EPS && remaining <= 1 + EPS) alerts.push({ level: "warn", text: `方案只剩 ${unitsText(remaining)} 堂，快用完了` });
+  else if (remaining > EPS && next && remaining <= lessonUnits(next) + EPS) {
+    alerts.push({ level: "warn", text: `只剩 ${unitsText(remaining)} 小時，下一堂上完就用完了` });
+  }
   for (const p of pk) {
     const left = p.lessons - p.used;
     if (!p.expiresOn || left <= EPS) continue;
     const md = `${parseDay(p.expiresOn).getMonth() + 1}/${parseDay(p.expiresOn).getDate()}`;
-    if (p.expiresOn < today) alerts.push({ level: "info", text: `有方案已在 ${md} 到期，還剩 ${unitsText(left)} 堂可以上` });
-    else if (p.expiresOn <= warnUntil) alerts.push({ level: "warn", text: `方案 ${md} 到期，還剩 ${unitsText(left)} 堂` });
+    if (p.expiresOn < today) alerts.push({ level: "info", text: `有方案已在 ${md} 到期，還剩 ${unitsText(left)} 小時可以用` });
+    else if (p.expiresOn <= warnUntil) alerts.push({ level: "warn", text: `方案 ${md} 到期，還剩 ${unitsText(left)} 小時` });
   }
 
   return {
@@ -88,7 +92,7 @@ export function studentSummary(student, packages, events, now) {
     attendedUnits: consumed.reduce((n, e) => n + lessonUnits(e), 0),
     booked: booked.length,
     remaining,
-    available: remaining - bookedUnits, // 扣掉已預約（要扣方案的）後還能排幾堂
+    available: remaining - bookedUnits, // 扣掉已預約（要扣方案的）後還剩幾小時
     income: Math.round(income),
     paid: packages.reduce((n, p) => n + p.price, 0),
     unpaid,
@@ -98,24 +102,19 @@ export function studentSummary(student, packages, events, now) {
   };
 }
 
-// 「最後一堂」：把上過的和已預約的扣方案課照順序排下去，扣完這堂後方案剩不到 1 堂的那一堂
+// 「最後一堂」：只看已經上完的課扣掉多少；剩下的時數只夠（或不夠）下一堂，就標在下一堂
 export function lastLessonIds(students, packagesOf, events, now) {
   const ids = new Set();
   for (const st of students) {
-    const f = packageForecast(st.id, packagesOf(st.id), events, now);
-    if (f.last) ids.add(f.last.id);
+    const pkgs = packagesOf(st.id);
+    if (!pkgs.length) continue;
+    const mine = events.filter((e) => e.kind === "lesson" && e.studentId === st.id && e.singlePrice == null);
+    const { pk } = allocate(pkgs, mine.filter((e) => consumes(e, now)));
+    const remaining = pk.reduce((n, p) => n + (p.lessons - p.used), 0);
+    const next = mine.filter((e) => e.status === "scheduled" && !isFinished(e, now)).sort((a, b) => a.start - b.start)[0];
+    if (next && remaining > EPS && remaining <= lessonUnits(next) + EPS) ids.add(next.id);
   }
   return ids;
-}
-
-// 方案預估：照已排好的課往下扣，哪一堂是最後一堂；如果排好的課都扣完還有剩，回傳剩幾堂
-export function packageForecast(studentId, pkgs, events, now) {
-  if (!pkgs.length) return { last: null, leftAfterBooked: 0 };
-  const mine = events.filter((e) => e.kind === "lesson" && e.studentId === studentId && e.singlePrice == null);
-  const counted = mine.filter((e) => consumes(e, now) || (e.status === "scheduled" && !isFinished(e, now)));
-  const { history, pk } = allocate(pkgs, counted);
-  const hit = history.find((h) => h.packageIds.length && h.leftAfter < 1 - EPS);
-  return { last: hit ? hit.event : null, leftAfterBooked: pk.reduce((n, p) => n + (p.lessons - p.used), 0) };
 }
 
 // 一對一的當月認列收入：上完（或取消且扣堂）的課認列；還沒上的課照同樣規則預估
