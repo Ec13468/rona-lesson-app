@@ -139,16 +139,28 @@ async function reloadEvents() {
 const horizonKey = () => dayKey(addDays(startOfDay(new Date()), SERIES_HORIZON_DAYS));
 
 // 固定課：把還沒排出來的每一堂補到 untilKey
+// 只有真的有新的一堂要排才連線；各門固定課同時處理，不一門一門排隊等
+let generating = null;
 async function generateSeries(untilKey) {
-  for (const s of state.series.values()) {
-    const target = s.endDate && s.endDate < untilKey ? s.endDate : untilKey;
-    if (s.generatedUntil && s.generatedUntil >= target) continue;
-    const list = pendingOccurrences(s, target);
-    const saved = await store.insertEvents(list);
-    saved.forEach((e) => state.events.set(e.id, e));
-    const updated = await store.updateSeries(s.id, { generatedUntil: target });
-    state.series.set(s.id, updated);
-  }
+  while (generating) await generating; // 同一時間只跑一次，避免重複排課
+  generating = (async () => {
+    const jobs = [];
+    for (const s of state.series.values()) {
+      const target = s.endDate && s.endDate < untilKey ? s.endDate : untilKey;
+      if (s.generatedUntil && s.generatedUntil >= target) continue;
+      const list = pendingOccurrences(s, target);
+      if (!list.length) continue; // 這段期間沒有新的一堂，不用連線
+      const last = list[list.length - 1].occurrenceDate;
+      jobs.push((async () => {
+        const saved = await store.insertEvents(list);
+        saved.forEach((e) => state.events.set(e.id, e));
+        state.series.set(s.id, await store.updateSeries(s.id, { generatedUntil: last }));
+      })());
+    }
+    await Promise.all(jobs);
+    return jobs.length;
+  })();
+  try { return await generating; } finally { generating = null; }
 }
 
 async function createSeries(def, firstNote) {
@@ -2101,8 +2113,11 @@ async function boot() {
   const t = startOfDay(new Date());
   // 扣堂和收入要看全部紀錄，所以從最早開始載入
   await ensureLoaded(new Date(2020, 0, 1), addDays(t, 120));
-  await generateSeries(horizonKey());
   render();
+  // 往後補排固定課放到背景做，不擋住畫面
+  generateSeries(horizonKey())
+    .then((n) => { if (n && !draft) render(); })
+    .catch((e) => console.error(e));
 }
 
 // 每分鐘更新一次，讓上完的課自動從首頁消失
